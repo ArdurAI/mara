@@ -128,6 +128,8 @@ pub struct Sinks {
     pub file: Vec<FileSinkConfig>,
     /// Stdout / stderr debug sinks.
     pub stdout: Vec<StdoutSinkConfig>,
+    /// OTLP HTTP/protobuf log exporters.
+    pub otlp: Vec<OtlpSinkConfig>,
 }
 
 /// Configuration for the file sink.
@@ -162,6 +164,35 @@ pub struct StdoutSinkConfig {
     /// Whether to pretty-print JSON.
     #[serde(default)]
     pub pretty: bool,
+}
+
+/// Configuration for an OTLP HTTP/protobuf log sink.
+///
+/// POSTs `ExportLogsServiceRequest` bodies to `{http_endpoint}/v1/logs`
+/// with `Content-Type: application/x-protobuf`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OtlpSinkConfig {
+    /// Logical name (must be unique across all sinks).
+    pub name: String,
+    /// OTLP/HTTP base URL without path, e.g. `http://127.0.0.1:4318`.
+    pub http_endpoint: String,
+    /// Flush after this many events (default 64).
+    #[serde(default = "default_otlp_sink_batch_max")]
+    pub batch_max_events: usize,
+    /// HTTP client timeout in seconds (default 30).
+    #[serde(default = "default_otlp_sink_timeout_secs")]
+    pub timeout_secs: u64,
+    /// When `true`, gzip-compress request bodies.
+    #[serde(default)]
+    pub gzip: bool,
+}
+
+const fn default_otlp_sink_batch_max() -> usize {
+    64
+}
+
+const fn default_otlp_sink_timeout_secs() -> u64 {
+    30
 }
 
 /// A single stage in a policy chain.
@@ -270,6 +301,14 @@ impl Config {
                 });
             }
         }
+        for s in &self.sinks.otlp {
+            if !sink_names.insert(s.name.clone()) {
+                return Err(Error::Config {
+                    message: format!("duplicate sink name: {}", s.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
 
         for p in &self.pipelines {
             for a in &p.adapters {
@@ -357,6 +396,21 @@ schema_version = "2"
         let err = Config::from_toml_str(bad, "test").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("schema_version"), "got: {msg}");
+    }
+
+    #[test]
+    fn rejects_duplicate_otlp_sink_names() {
+        let bad = r#"
+schema_version = "1"
+[[sinks.otlp]]
+name = "dup"
+http_endpoint = "http://127.0.0.1:1"
+[[sinks.otlp]]
+name = "dup"
+http_endpoint = "http://127.0.0.1:2"
+"#;
+        let err = Config::from_toml_str(bad, "test").unwrap_err();
+        assert!(err.to_string().contains("duplicate sink"), "got: {err}");
     }
 
     #[test]

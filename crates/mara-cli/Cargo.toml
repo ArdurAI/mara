@@ -24,6 +24,7 @@ mara-policy.workspace = true
 mara-adapter-jsonl.workspace = true
 mara-adapter-otlp.workspace = true
 mara-sink-file.workspace = true
+mara-sink-otlp.workspace = true
 
 [lints]
 workspace = true

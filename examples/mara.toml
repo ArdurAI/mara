@@ -31,6 +31,15 @@ path = "out/mara-events.jsonl"
 format = "jsonl"
 rotate_bytes = 67108864
 
+# Optional: forward canonical events to another OTLP/HTTP endpoint
+# (OpenTelemetry Collector, Grafana Alloy, Jaeger with OTLP, etc.).
+# [[sinks.otlp]]
+# name = "forward_otlp"
+# http_endpoint = "http://127.0.0.1:4319"
+# batch_max_events = 64
+# timeout_secs = 30
+# gzip = false
+
 [[policies.demo_chain]]
 type = "redact"
 pack = "builtin.pii"

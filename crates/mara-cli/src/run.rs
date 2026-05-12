@@ -11,7 +11,7 @@ use mara_adapter_jsonl::{JsonlAdapter, JsonlAdapterConfig};
 use mara_adapter_otlp::{OtlpHttpAdapter, OtlpHttpAdapterConfig};
 use mara_core::config::{
     Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl,
-    OtlpAdapterConfig as CfgOtlp, PipelineConfig, PolicyStageConfig,
+    OtlpAdapterConfig as CfgOtlp, OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig,
     StdoutSinkConfig as ConfigStdoutSinkConfig,
 };
 use mara_core::policy::{Policy, PolicyChain};
@@ -19,6 +19,7 @@ use mara_core::traits::{Adapter, Sink};
 use mara_core::{Error, Pipeline};
 use mara_policy::builtin::{HeadSampler, RegexRedactor};
 use mara_sink_file::{FileSink, FileSinkConfig, StdoutSink};
+use mara_sink_otlp::{OtlpHttpSink, OtlpHttpSinkConfig};
 use tracing::{info, warn};
 
 /// Run the agent against a configuration file.
@@ -29,7 +30,7 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     let adapters_by_name = build_adapters(&cfg.adapters.jsonl, &cfg.adapters.otlp);
 
     // Build sinks by name.
-    let sinks_by_name = build_sinks(&cfg.sinks.file, &cfg.sinks.stdout);
+    let sinks_by_name = build_sinks(&cfg.sinks.file, &cfg.sinks.stdout, &cfg.sinks.otlp);
 
     // Build policy chains.
     let chains_by_name = build_policy_chains(&cfg.policies);
@@ -100,6 +101,7 @@ fn build_adapters(
 fn build_sinks(
     files: &[ConfigFileSinkConfig],
     stdouts: &[ConfigStdoutSinkConfig],
+    otlp: &[CfgOtlpSink],
 ) -> std::collections::HashMap<String, Arc<dyn Sink>> {
     let mut out: std::collections::HashMap<String, Arc<dyn Sink>> =
         std::collections::HashMap::new();
@@ -115,6 +117,20 @@ fn build_sinks(
     }
     for s in stdouts {
         out.insert(s.name.clone(), Arc::new(StdoutSink::new(s.name.clone(), s.pretty)));
+    }
+    for c in otlp {
+        let mut sink_cfg = OtlpHttpSinkConfig::new(c.name.clone(), c.http_endpoint.clone());
+        sink_cfg.batch_max_events = c.batch_max_events;
+        sink_cfg.timeout_secs = c.timeout_secs;
+        sink_cfg.gzip = c.gzip;
+        match OtlpHttpSink::new(sink_cfg) {
+            Ok(sink) => {
+                out.insert(c.name.clone(), Arc::new(sink));
+            }
+            Err(e) => {
+                warn!(sink = %c.name, error = %e, "invalid OTLP sink configuration; skipping");
+            }
+        }
     }
     out
 }
