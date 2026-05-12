@@ -1,0 +1,12 @@
+Mara
+Copyright 2026 ArdurAI
+
+This product includes software developed at ArdurAI.
+
+This software contains code generated from or aligned with the OpenTelemetry
+Semantic Conventions (https://github.com/open-telemetry/semantic-conventions),
+which is licensed under the Apache License, Version 2.0.
+
+Mara is inspired at the pattern level by Fluentd, Fluent Bit, the
+OpenTelemetry Collector, Grafana Loki, and Splunk Universal Forwarder / HEC.
+No source code from these projects is included or vendored.
