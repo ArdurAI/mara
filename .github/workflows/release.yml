@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive_ext: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive_ext: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive_ext: zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross-build deps
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          cargo install cargo-zigbuild
+          pip install ziglang
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-release
+      - name: Build
+        run: |
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            cargo zigbuild --release --target ${{ matrix.target }} -p mara-cli
+          else
+            cargo build --release --target ${{ matrix.target }} -p mara-cli
+          fi
+        shell: bash
+      - name: Package
+        id: pkg
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [[ -z "$version" ]]; then version="${{ github.event.inputs.tag }}"; fi
+          target="${{ matrix.target }}"
+          ext="${{ matrix.archive_ext }}"
+          name="mara-${version}-${target}.${ext}"
+          mkdir -p dist
+          if [[ "$ext" == "zip" ]]; then
+            7z a "dist/${name}" "./target/${target}/release/mara.exe"
+          else
+            tar -C "./target/${target}/release" -czf "dist/${name}" mara
+          fi
+          echo "asset=dist/${name}" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mara-${{ matrix.target }}
+          path: dist/
+
+  sbom:
+    name: sbom
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Generate CycloneDX SBOM
+        run: |
+          cargo install cargo-cyclonedx
+          cargo cyclonedx --format json --override-filename mara-sbom
+          mv mara-sbom.cdx.json dist/ || mkdir -p dist && mv mara-sbom.cdx.json dist/
+      - name: Generate SPDX SBOM
+        run: |
+          cargo install cargo-sbom
+          cargo sbom --output-format spdx-json-2-3 > dist/mara-sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sboms
+          path: dist/
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    needs: [build, sbom]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+      - name: Generate SLSA provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/mara-*.tar.gz
+            dist/mara-*.zip
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign release artifacts
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          for f in dist/mara-*.tar.gz dist/mara-*.zip; do
+            [[ -f "$f" ]] || continue
+            cosign sign-blob --yes --output-signature "$f.sig" --output-certificate "$f.pem" "$f"
+          done
+      - name: Compute SHA256 checksums
+        run: |
+          (cd dist && sha256sum mara-* > SHA256SUMS)
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true
+          draft: true
+
+  container:
+    name: container image
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: mara-x86_64-unknown-linux-musl
+          path: dist/
+      - name: Prepare binary for Dockerfile
+        run: |
+          mkdir -p .docker
+          tar -xzf dist/mara-*-x86_64-unknown-linux-musl.tar.gz -C .docker/
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .docker
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/ardurai/mara:${{ github.ref_name }}
+            ghcr.io/ardurai/mara:latest
+          provenance: mode=max
+          sbom: true
+      - name: Sign image
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes ghcr.io/ardurai/mara:${{ github.ref_name }}

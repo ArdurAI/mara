@@ -1,0 +1,105 @@
+{{- if eq .Values.deploymentKind "DaemonSet" -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "mara.fullname" . }}
+  labels:
+    {{- include "mara.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "mara.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 10%
+  template:
+    metadata:
+      labels:
+        {{- include "mara.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mara.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mara
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run", "--config", "/etc/mara/mara.toml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ .Values.ports.otlpGrpc }}
+              {{- if .Values.hostPort.enabled }}
+              hostPort: {{ .Values.ports.otlpGrpc }}
+              {{- end }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ .Values.ports.otlpHttp }}
+              {{- if .Values.hostPort.enabled }}
+              hostPort: {{ .Values.ports.otlpHttp }}
+              {{- end }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+              protocol: TCP
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mara
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/mara
+            {{- if .Values.hostPathMounts.enabled }}
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "mara.fullname" . }}-config
+        - name: state
+          hostPath:
+            path: {{ .Values.stateHostPath }}
+            type: DirectoryOrCreate
+        {{- if .Values.hostPathMounts.enabled }}
+        - name: varlog
+          hostPath:
+            path: {{ .Values.hostPathMounts.varlog }}
+        - name: varlibdockercontainers
+          hostPath:
+            path: {{ .Values.hostPathMounts.varlibdockercontainers }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,9 @@
+# Mara CODEOWNERS — populated as maintainers are named in M5.
+
+* @ArdurAI/mara-maintainers
+/plans/             @ArdurAI/mara-maintainers
+/docs/adr/          @ArdurAI/mara-maintainers
+/crates/mara-core/  @ArdurAI/mara-maintainers
+/crates/mara-schema/@ArdurAI/mara-maintainers
+/crates/mara-policy/@ArdurAI/mara-maintainers
+/.github/           @ArdurAI/mara-maintainers

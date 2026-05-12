@@ -1,0 +1,91 @@
+image:
+  repository: ghcr.io/ardurai/mara
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+deploymentKind: DaemonSet
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+  rules: []
+
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 100m
+  limits:
+    memory: 768Mi
+    cpu: 1000m
+
+securityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+ports:
+  otlpGrpc: 4317
+  otlpHttp: 4318
+  metrics: 9099
+
+hostPort:
+  enabled: true
+
+service:
+  enabled: true
+  type: ClusterIP
+  internalTrafficPolicy: Local
+
+config: |
+  schema_version = "1"
+
+  [server]
+  metrics_addr = "0.0.0.0:9099"
+  log_format = "json"
+
+  [[adapters.jsonl]]
+  name = "container_logs"
+  globs = ["/var/log/pods/*/*/*.log"]
+  checkpoint_path = "/var/lib/mara/ckpt/container_logs"
+
+  [[sinks.stdout]]
+  name = "debug"
+
+  [[policies.default]]
+  type = "redact"
+  pack = "builtin.pii"
+
+  [[pipelines]]
+  name = "primary"
+  adapters = ["container_logs"]
+  policy_chain = "default"
+  sinks = ["debug"]
+
+hostPathMounts:
+  enabled: false
+  varlog: /var/log
+  varlibdockercontainers: /var/lib/docker/containers
+
+stateHostPath: /var/lib/mara
+
+priorityClassName: system-node-critical
+tolerations:
+  - operator: Exists
+
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+
+networkPolicy:
+  enabled: false

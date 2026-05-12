@@ -1,0 +1,33 @@
+[Unit]
+Description=Mara — AI-native telemetry shipper
+Documentation=https://github.com/ArdurAI/mara
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=mara
+Group=mara
+ExecStart=/usr/local/bin/mara run --config /etc/mara/mara.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+LimitNOFILE=65536
+
+ReadWritePaths=/var/lib/mara /var/log/mara
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

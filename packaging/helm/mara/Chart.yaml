@@ -1,0 +1,22 @@
+apiVersion: v2
+name: mara
+description: AI-native telemetry shipper for AI agents and LLM workloads
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/ArdurAI/mara
+sources:
+  - https://github.com/ArdurAI/mara
+maintainers:
+  - name: ArdurAI
+    email: oss@ardurai.dev
+keywords:
+  - telemetry
+  - observability
+  - ai
+  - llm
+  - opentelemetry
+icon: https://raw.githubusercontent.com/ArdurAI/mara/main/docs/logo.png
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/containsSecurityUpdates: "false"

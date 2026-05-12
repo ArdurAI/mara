@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 8
+    rebase-strategy: auto
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      tokio-stack:
+        patterns:
+          - "tokio*"
+          - "futures*"
+          - "tower*"
+          - "hyper*"
+      otel-stack:
+        patterns:
+          - "opentelemetry*"
+          - "tracing*"
+      serde-stack:
+        patterns:
+          - "serde*"
+          - "toml"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
