@@ -1,0 +1,20 @@
+[package]
+name = "mara-sink-kafka"
+description = "Mara Kafka sink via rdkafka (librdkafka)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+mara-core.workspace = true
+mara-schema.workspace = true
+
+[lints]
+workspace = true

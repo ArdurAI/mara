@@ -1,0 +1,32 @@
+[package]
+name = "mara-core"
+description = "Mara core pipeline: traits, scheduler, WAL, backpressure, hot reload, config."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+time.workspace = true
+parking_lot.workspace = true
+mara-schema.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+insta.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

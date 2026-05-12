@@ -1,0 +1,25 @@
+[package]
+name = "mara-sink-file"
+description = "Mara local file rotation sink (size + time based)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+mara-core.workspace = true
+mara-schema.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

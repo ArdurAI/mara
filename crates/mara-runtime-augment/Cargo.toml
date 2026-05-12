@@ -1,0 +1,19 @@
+[package]
+name = "mara-runtime-augment"
+description = "Augment Code runtime preset for Mara: analytics REST polling (Tier C best-effort)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mara-core.workspace = true
+mara-schema.workspace = true
+mara-adapter-analytics.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+schema_version = "1"
+
+[server]
+metrics_addr = "127.0.0.1:9099"
+log_format = "json"
+
+[[adapters.jsonl]]
+name = "demo_jsonl"
+globs = ["events.jsonl"]
+checkpoint_path = ".mara/ckpt"
+
+[[sinks.stdout]]
+name = "demo_stdout"
+pretty = true
+
+[[sinks.file]]
+name = "demo_file"
+path = "out/mara-events.jsonl"
+format = "jsonl"
+rotate_bytes = 67108864
+
+[[policies.demo_chain]]
+type = "redact"
+pack = "builtin.pii"
+
+[[pipelines]]
+name = "demo"
+adapters = ["demo_jsonl"]
+policy_chain = "demo_chain"
+sinks = ["demo_stdout", "demo_file"]

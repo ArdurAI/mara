@@ -1,0 +1,20 @@
+[package]
+name = "mara-runtime-claude-code"
+description = "Claude Code (Anthropic) runtime preset for Mara: OTLP receive + JSONL tail."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mara-core.workspace = true
+mara-schema.workspace = true
+mara-adapter-otlp.workspace = true
+mara-adapter-jsonl.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

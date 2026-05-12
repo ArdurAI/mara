@@ -1,0 +1,20 @@
+[package]
+name = "mara-sink-object-store"
+description = "Mara object-store sink: S3, GCS, Azure Blob via apache-arrow object_store; JSONL and Parquet."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+mara-core.workspace = true
+mara-schema.workspace = true
+
+[lints]
+workspace = true

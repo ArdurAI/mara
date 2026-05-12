@@ -1,0 +1,193 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mara-core",
+    "crates/mara-schema",
+    "crates/mara-policy",
+    "crates/mara-adapter-otlp",
+    "crates/mara-adapter-jsonl",
+    "crates/mara-adapter-hooks",
+    "crates/mara-adapter-analytics",
+    "crates/mara-adapter-llm-proxy",
+    "crates/mara-runtime-claude-code",
+    "crates/mara-runtime-codex",
+    "crates/mara-runtime-cursor",
+    "crates/mara-runtime-kimi",
+    "crates/mara-runtime-augment",
+    "crates/mara-runtime-gemini",
+    "crates/mara-runtime-ollama",
+    "crates/mara-sink-otlp",
+    "crates/mara-sink-loki",
+    "crates/mara-sink-splunk-hec",
+    "crates/mara-sink-elasticsearch",
+    "crates/mara-sink-object-store",
+    "crates/mara-sink-kafka",
+    "crates/mara-sink-prom-rw",
+    "crates/mara-sink-file",
+    "crates/mara-sink-webhook",
+    "crates/mara-cli",
+    "crates/mara-gateway",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "Apache-2.0"
+repository = "https://github.com/ArdurAI/mara"
+homepage = "https://github.com/ArdurAI/mara"
+authors = ["ArdurAI <oss@ardurai.dev>"]
+readme = "../../README.md"
+keywords = ["telemetry", "observability", "ai", "llm", "logging"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+# Test-only utilities
+tempfile = "3"
+
+# Core async + runtime
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "sync",
+    "fs",
+    "io-util",
+    "process",
+    "time",
+    "net",
+] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Errors + logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Time
+time = { version = "0.3", features = ["formatting", "parsing", "macros", "serde"] }
+
+# Misc
+regex = "1"
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+bytes = "1"
+parking_lot = "0.12"
+
+# OTel
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic", "http-proto", "http-json", "logs", "metrics", "trace"] }
+opentelemetry-semantic-conventions = "0.27"
+
+# CLI
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+
+# Test deps
+tokio-test = "0.4"
+insta = { version = "1", features = ["yaml", "json"] }
+proptest = "1"
+
+# Internal crates
+mara-core = { version = "0.1.0", path = "crates/mara-core" }
+mara-schema = { version = "0.1.0", path = "crates/mara-schema" }
+mara-policy = { version = "0.1.0", path = "crates/mara-policy" }
+mara-adapter-otlp = { version = "0.1.0", path = "crates/mara-adapter-otlp" }
+mara-adapter-jsonl = { version = "0.1.0", path = "crates/mara-adapter-jsonl" }
+mara-adapter-hooks = { version = "0.1.0", path = "crates/mara-adapter-hooks" }
+mara-adapter-analytics = { version = "0.1.0", path = "crates/mara-adapter-analytics" }
+mara-adapter-llm-proxy = { version = "0.1.0", path = "crates/mara-adapter-llm-proxy" }
+mara-runtime-claude-code = { version = "0.1.0", path = "crates/mara-runtime-claude-code" }
+mara-runtime-codex = { version = "0.1.0", path = "crates/mara-runtime-codex" }
+mara-runtime-cursor = { version = "0.1.0", path = "crates/mara-runtime-cursor" }
+mara-runtime-kimi = { version = "0.1.0", path = "crates/mara-runtime-kimi" }
+mara-runtime-augment = { version = "0.1.0", path = "crates/mara-runtime-augment" }
+mara-runtime-gemini = { version = "0.1.0", path = "crates/mara-runtime-gemini" }
+mara-runtime-ollama = { version = "0.1.0", path = "crates/mara-runtime-ollama" }
+mara-sink-otlp = { version = "0.1.0", path = "crates/mara-sink-otlp" }
+mara-sink-loki = { version = "0.1.0", path = "crates/mara-sink-loki" }
+mara-sink-splunk-hec = { version = "0.1.0", path = "crates/mara-sink-splunk-hec" }
+mara-sink-elasticsearch = { version = "0.1.0", path = "crates/mara-sink-elasticsearch" }
+mara-sink-object-store = { version = "0.1.0", path = "crates/mara-sink-object-store" }
+mara-sink-kafka = { version = "0.1.0", path = "crates/mara-sink-kafka" }
+mara-sink-prom-rw = { version = "0.1.0", path = "crates/mara-sink-prom-rw" }
+mara-sink-file = { version = "0.1.0", path = "crates/mara-sink-file" }
+mara-sink-webhook = { version = "0.1.0", path = "crates/mara-sink-webhook" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_must_use = "warn"
+
+[workspace.lints.clippy]
+# Base lints we always want.  Pedantic / nursery generate too many
+# false positives in stub-stage code; we opt into the specific
+# pedantic lints we actually want one-by-one.
+all = { level = "warn", priority = -1 }
+# Selected pedantic / nursery lints we want enforced.
+doc_markdown = "warn"
+unnecessary_wraps = "warn"
+needless_pass_by_value = "warn"
+inefficient_to_string = "warn"
+manual_string_new = "warn"
+redundant_closure_for_method_calls = "warn"
+ref_option = "warn"
+single_match_else = "warn"
+str_to_string = "warn"
+unnecessary_box_returns = "warn"
+unused_async = "warn"
+# Explicitly allowed because they fire on perfectly reasonable code.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.release-debug]
+inherits = "release"
+debug = true
+strip = "none"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+debug = true
+
+# Top-level integration tests live under `tests/` at the workspace
+# root and need additional dev-dependencies.
+
+[package]
+name = "mara-workspace-tests"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[test]]
+name = "e2e_pipeline"
+path = "tests/e2e_pipeline.rs"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time"] }
+tempfile.workspace = true
+mara-core.workspace = true
+mara-policy.workspace = true
+mara-adapter-jsonl.workspace = true
+mara-sink-file.workspace = true
+
+[lints]
+workspace = true

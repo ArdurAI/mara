@@ -1,0 +1,20 @@
+[package]
+name = "mara-runtime-ollama"
+description = "Ollama (local LLM runtime) preset for Mara: HTTP proxy capture of native /api/* and OpenAI-compat /v1/* request/response shapes, with gen_ai.* and mara.ollama.* attribute mapping."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mara-core.workspace = true
+mara-schema.workspace = true
+mara-adapter-llm-proxy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

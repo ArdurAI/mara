@@ -1,0 +1,20 @@
+[package]
+name = "xtask"
+description = "Internal cargo-xtask runner for codegen and release tooling.  Not a published crate."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+
+[lints]
+workspace = true
