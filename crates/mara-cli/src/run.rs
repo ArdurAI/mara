@@ -8,9 +8,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mara_adapter_jsonl::{JsonlAdapter, JsonlAdapterConfig};
+use mara_adapter_otlp::{OtlpHttpAdapter, OtlpHttpAdapterConfig};
 use mara_core::config::{
-    Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl, PipelineConfig,
-    PolicyStageConfig, StdoutSinkConfig as ConfigStdoutSinkConfig,
+    Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl,
+    OtlpAdapterConfig as CfgOtlp, PipelineConfig, PolicyStageConfig,
+    StdoutSinkConfig as ConfigStdoutSinkConfig,
 };
 use mara_core::policy::{Policy, PolicyChain};
 use mara_core::traits::{Adapter, Sink};
@@ -24,7 +26,7 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     let cfg = load_config(config_path)?;
 
     // Build adapters by name.
-    let adapters_by_name = build_adapters(&cfg.adapters.jsonl);
+    let adapters_by_name = build_adapters(&cfg.adapters.jsonl, &cfg.adapters.otlp);
 
     // Build sinks by name.
     let sinks_by_name = build_sinks(&cfg.sinks.file, &cfg.sinks.stdout);
@@ -69,13 +71,28 @@ fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
     }
 }
 
-fn build_adapters(cfgs: &[CfgJsonl]) -> std::collections::HashMap<String, Arc<dyn Adapter>> {
+fn build_adapters(
+    jsonl_cfgs: &[CfgJsonl],
+    otlp_cfgs: &[CfgOtlp],
+) -> std::collections::HashMap<String, Arc<dyn Adapter>> {
     let mut out: std::collections::HashMap<String, Arc<dyn Adapter>> =
         std::collections::HashMap::new();
-    for c in cfgs {
+    for c in jsonl_cfgs {
         let paths: Vec<std::path::PathBuf> = c.globs.iter().map(std::path::PathBuf::from).collect();
         let cfg = JsonlAdapterConfig::new(c.name.clone(), paths, c.checkpoint_path.clone());
         out.insert(c.name.clone(), Arc::new(JsonlAdapter::new(cfg)));
+    }
+    for c in otlp_cfgs {
+        match c.http_listen.parse() {
+            Ok(addr) => {
+                let mut cfg = OtlpHttpAdapterConfig::new(c.name.clone(), addr);
+                cfg.max_body_bytes = c.max_body_bytes;
+                out.insert(c.name.clone(), Arc::new(OtlpHttpAdapter::new(cfg)));
+            }
+            Err(err) => {
+                warn!(adapter = %c.name, listen = %c.http_listen, "invalid http_listen address; skipping: {err}");
+            }
+        }
     }
     out
 }

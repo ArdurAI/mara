@@ -4,10 +4,22 @@ schema_version = "1"
 metrics_addr = "127.0.0.1:9099"
 log_format = "json"
 
+# Tier A: OTLP HTTP/protobuf receiver for runtimes that emit OTel
+# (Claude Code, Codex, Gemini CLI).  Set these env vars on the
+# runtime to point it at Mara:
+#   CLAUDE_CODE_ENABLE_TELEMETRY=1
+#   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+[[adapters.otlp]]
+name = "claude_code_otlp"
+http_listen = "127.0.0.1:4318"
+
+# Tier B: JSONL tail of Claude Code transcripts as redundant signal
+# for ZDR-strict environments where OTel is disabled.
 [[adapters.jsonl]]
-name = "demo_jsonl"
-globs = ["events.jsonl"]
-checkpoint_path = ".mara/ckpt"
+name = "claude_code_jsonl"
+globs = ["~/.claude/projects/**/*.jsonl"]
+checkpoint_path = ".mara/ckpt/claude_code"
 
 [[sinks.stdout]]
 name = "demo_stdout"
@@ -25,6 +37,6 @@ pack = "builtin.pii"
 
 [[pipelines]]
 name = "demo"
-adapters = ["demo_jsonl"]
+adapters = ["claude_code_otlp", "claude_code_jsonl"]
 policy_chain = "demo_chain"
 sinks = ["demo_stdout", "demo_file"]

@@ -64,6 +64,35 @@ impl Default for ServerConfig {
 pub struct Adapters {
     /// JSONL tail adapters.
     pub jsonl: Vec<JsonlAdapterConfig>,
+    /// OTLP HTTP/protobuf receivers.
+    pub otlp: Vec<OtlpAdapterConfig>,
+}
+
+/// Configuration for an OTLP HTTP/protobuf receiver adapter.
+///
+/// Listens on a configured local address and accepts `POST /v1/logs`
+/// and `POST /v1/traces` requests with `application/x-protobuf`
+/// bodies, decoded against the OTel protocol schema and translated
+/// into canonical Mara events.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OtlpAdapterConfig {
+    /// Logical name (must be unique across all adapters).
+    pub name: String,
+    /// Address to bind for HTTP/protobuf OTLP traffic.  Default
+    /// `127.0.0.1:4318` per the OTel spec.
+    #[serde(default = "default_otlp_http_listen")]
+    pub http_listen: String,
+    /// Maximum body size accepted in bytes (default 16 MiB).
+    #[serde(default = "default_otlp_max_body_bytes")]
+    pub max_body_bytes: usize,
+}
+
+fn default_otlp_http_listen() -> String {
+    "127.0.0.1:4318".to_owned()
+}
+
+const fn default_otlp_max_body_bytes() -> usize {
+    16 * 1024 * 1024
 }
 
 /// Configuration for a JSONL tail adapter.
@@ -208,7 +237,15 @@ impl Config {
 
         let mut adapter_names = std::collections::HashSet::new();
         for a in &self.adapters.jsonl {
-            if !adapter_names.insert(&a.name) {
+            if !adapter_names.insert(a.name.clone()) {
+                return Err(Error::Config {
+                    message: format!("duplicate adapter name: {}", a.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
+        for a in &self.adapters.otlp {
+            if !adapter_names.insert(a.name.clone()) {
                 return Err(Error::Config {
                     message: format!("duplicate adapter name: {}", a.name),
                     path: Some(path.into()),

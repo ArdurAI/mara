@@ -1,6 +1,6 @@
 [package]
 name = "mara-adapter-otlp"
-description = "Mara OTLP receiver adapter (gRPC, HTTP/protobuf, HTTP/JSON)."
+description = "Mara OTLP receiver adapter (HTTP/protobuf at MVP; gRPC in MVP+1)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,8 +13,21 @@ tokio.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+serde.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+prost.workspace = true
+flate2.workspace = true
+bytes.workspace = true
+time.workspace = true
+opentelemetry-proto.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+reqwest.workspace = true
 
 [lints]
 workspace = true
