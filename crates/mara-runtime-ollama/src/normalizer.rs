@@ -47,6 +47,8 @@ impl UpstreamNormalizer for OllamaNormalizer {
             ev.gen_ai.operation_name = Some("embeddings".into());
         }
 
+        apply_request_fields(&mut ev, request);
+
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&response.body) {
             apply_json_fields(&mut ev, &v);
             let openai_has_choices = v
@@ -73,6 +75,73 @@ fn base_event(session_id: &str) -> Event {
     ev
 }
 
+/// Fills `gen_ai.request` (and client `stream` intent on `gen_ai.response.is_streaming`) from the
+/// proxied **client** JSON body. Ollama native uses a nested `options` object; OpenAI-compatible
+/// requests often put `temperature`, `max_tokens`, etc. at the top level.
+fn apply_request_fields(ev: &mut Event, request: &ProxiedRequest) {
+    if request.body_truncated || request.body.is_empty() {
+        return;
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&request.body) else {
+        return;
+    };
+    if let Some(m) = v.get("model").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()) {
+        ev.gen_ai.request.model = Some(m.to_owned());
+    }
+    if let Some(b) = v.get("stream").and_then(serde_json::Value::as_bool) {
+        ev.gen_ai.response.is_streaming = b;
+    }
+    // Native Ollama: tunables live under `options`. OpenAI-compat: often top-level.
+    let opts = v.get("options");
+    let pick = |key: &str| -> Option<&serde_json::Value> {
+        opts.and_then(|o| o.get(key)).or_else(|| v.get(key))
+    };
+    if let Some(t) = pick("temperature").and_then(serde_json::Value::as_f64) {
+        ev.gen_ai.request.temperature = Some(t);
+    }
+    if let Some(t) = pick("top_p").and_then(serde_json::Value::as_f64) {
+        ev.gen_ai.request.top_p = Some(t);
+    }
+    if let Some(k) = pick("top_k").and_then(serde_json::Value::as_u64) {
+        ev.gen_ai.request.top_k = Some(k.min(u64::from(u32::MAX)) as u32);
+    }
+    if let Some(n) = pick("num_predict")
+        .or_else(|| v.get("max_tokens"))
+        .and_then(|x| x.as_u64())
+    {
+        ev.gen_ai.request.max_tokens = Some(n.min(u64::from(u32::MAX)) as u32);
+    }
+    if let Some(s) = pick("seed").and_then(serde_json::Value::as_i64) {
+        ev.gen_ai.request.seed = Some(s);
+    }
+    if let Some(p) = pick("presence_penalty").and_then(serde_json::Value::as_f64) {
+        ev.gen_ai.request.presence_penalty = Some(p);
+    }
+    if let Some(f) = pick("frequency_penalty").and_then(serde_json::Value::as_f64) {
+        ev.gen_ai.request.frequency_penalty = Some(f);
+    }
+    append_stop_sequences(&mut ev.gen_ai.request.stop_sequences, pick("stop"));
+}
+
+fn append_stop_sequences(out: &mut Vec<String>, stop: Option<&serde_json::Value>) {
+    let Some(s) = stop else { return };
+    match s {
+        serde_json::Value::String(t) => {
+            if !t.is_empty() {
+                out.push(t.clone());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for it in items {
+                if let Some(t) = it.as_str().filter(|x| !x.is_empty()) {
+                    out.push(t.to_owned());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
     if let Some(n) = v.get("prompt_eval_count").and_then(serde_json::Value::as_u64) {
         ev.gen_ai.usage.input_tokens = Some(n);
@@ -90,8 +159,26 @@ fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
     {
         ev.gen_ai.usage.output_tokens = Some(n);
     }
+    if let Some(n) = v.pointer("/usage/total_tokens").and_then(serde_json::Value::as_u64) {
+        ev.gen_ai.usage.total_tokens = Some(n);
+    }
+    if let Some(n) = v.pointer("/usage/prompt_tokens_details/cache_read_tokens")
+        .or_else(|| v.pointer("/usage/cache_read_input_tokens"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        ev.gen_ai.usage.cached_tokens = Some(n);
+    }
     if let Some(model) = v.get("model").and_then(|x| x.as_str()) {
         ev.gen_ai.response.model = Some(model.to_owned());
+    }
+    if let Some(dr) = v.get("done_reason").and_then(serde_json::Value::as_str) {
+        ev.gen_ai.response.finish_reasons = vec![dr.to_owned()];
+    } else if let Some(fr) = v.pointer("/choices/0/finish_reason").and_then(serde_json::Value::as_str)
+    {
+        ev.gen_ai.response.finish_reasons = vec![fr.to_owned()];
+    }
+    if let Some(id) = v.get("id").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()) {
+        ev.gen_ai.response.id = Some(id.to_owned());
     }
     if let Some(ns) = v.get("total_duration").and_then(serde_json::Value::as_u64) {
         let ms = (ns as f64) / 1_000_000.0;
@@ -118,6 +205,12 @@ fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
             let tps = ec as f64 / ed_sec;
             ev.attributes.insert("mara.ollama.tokens_per_sec".into(), AttrValue::Float(tps));
         }
+    }
+
+    if ev.gen_ai.usage.total_tokens.is_none()
+        && let (Some(i), Some(o)) = (ev.gen_ai.usage.input_tokens, ev.gen_ai.usage.output_tokens)
+    {
+        ev.gen_ai.usage.total_tokens = Some(i + o);
     }
 
     ev.mara.cost_usd = Some(0.0);
@@ -224,5 +317,58 @@ mod tests {
         assert_eq!(ev.gen_ai.usage.output_tokens, Some(7));
         assert_eq!(ev.gen_ai.response.model.as_deref(), Some("qwen2.5"));
         assert!(matches!(ev.event_kind, EventKind::Completion));
+    }
+
+    #[test]
+    fn fills_generate_request_from_client_json_and_response_meta() {
+        let n = OllamaNormalizer;
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/generate".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"gpt-oss:120b-cloud","stream":false,"options":{"temperature":0.7,"top_p":0.9,"top_k":40,"num_predict":256,"stop":["\n\n"]}}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"gpt-oss:120b","done_reason":"stop","prompt_eval_count":10,"eval_count":3,"total_duration":1000000}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("sess-req", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.request.model.as_deref(), Some("gpt-oss:120b-cloud"));
+        assert_eq!(ev.gen_ai.request.temperature, Some(0.7));
+        assert_eq!(ev.gen_ai.request.top_p, Some(0.9));
+        assert_eq!(ev.gen_ai.request.top_k, Some(40));
+        assert_eq!(ev.gen_ai.request.max_tokens, Some(256));
+        assert_eq!(ev.gen_ai.request.stop_sequences, vec!["\n\n"]);
+        assert!(!ev.gen_ai.response.is_streaming);
+        assert_eq!(ev.gen_ai.usage.total_tokens, Some(13));
+        assert_eq!(ev.gen_ai.response.finish_reasons, vec!["stop"]);
+        assert_eq!(ev.gen_ai.response.model.as_deref(), Some("gpt-oss:120b"));
+    }
+
+    #[test]
+    fn fills_openai_compat_request_top_level_tuning() {
+        let n = OllamaNormalizer;
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/v1/chat/completions".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"qwen2.5","temperature":0.2,"max_tokens":512,"stream":true,"stop":"USER:"}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"qwen2.5","choices":[{"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("sess-oai", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.request.model.as_deref(), Some("qwen2.5"));
+        assert_eq!(ev.gen_ai.request.temperature, Some(0.2));
+        assert_eq!(ev.gen_ai.request.max_tokens, Some(512));
+        assert!(ev.gen_ai.response.is_streaming);
+        assert_eq!(ev.gen_ai.request.stop_sequences, vec!["USER:"]);
+        assert_eq!(ev.gen_ai.response.finish_reasons, vec!["length"]);
+        assert_eq!(ev.gen_ai.usage.total_tokens, Some(3));
     }
 }

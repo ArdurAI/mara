@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running unittests src/lib.rs (target/debug/deps/mara_runtime_ollama-3b0be69544c85860)
+
+running 10 tests
+test tests::linux_reconfig_uses_systemd_override ... ok
+test tests::default_ports_split_conventional_and_upstream ... ok
+test normalizer::tests::upstream_503_records_http_status ... ok
+test tests::macos_reconfig_uses_launchctl ... ok
+test normalizer::tests::proxy_synthetic_502_records_failure_kind ... ok
+test tests::runtime_id_is_stable ... ok
+test normalizer::tests::fills_generate_request_from_client_json_and_response_meta ... ok
+test normalizer::tests::parses_native_chat_counters ... ok
+test normalizer::tests::fills_openai_compat_request_top_level_tuning ... ok
+test normalizer::tests::parses_openai_compat_chat_usage ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mara_runtime_ollama
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

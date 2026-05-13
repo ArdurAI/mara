@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/e2e_pipeline.rs (target/debug/deps/e2e_pipeline-9775a6d5f9907500)
+
+running 3 tests
+test config_loads_minimal_pipeline ... ok
+test config_loads_llm_proxy_pipeline ... ok
+test e2e_jsonl_to_file_with_pii_redaction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.04s
+
