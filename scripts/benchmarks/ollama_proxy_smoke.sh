@@ -24,6 +24,8 @@ schema_version = "1"
 
 [server]
 log_format = "text"
+telemetry_service_name = "mara-ollama-smoke"
+telemetry_service_version = "ci"
 
 [[adapters.llm_proxy]]
 name = "ollama_proxy"

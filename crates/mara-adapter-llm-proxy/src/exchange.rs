@@ -29,7 +29,7 @@ pub struct ProxiedResponse {
     /// `true` when `body` was cut at the configured byte cap.
     pub body_truncated: bool,
     /// When the proxy returned a synthetic failure (e.g. 502), a stable reason code
-    /// (`client_body_read`, `upstream_transport`, …).
+    /// from [`crate::ProxyFailureKind`] (e.g. `client_body_read`, `upstream_transport`).
     pub failure_kind: Option<String>,
     /// When the proxy failed after receiving upstream status line, that status (e.g. body read error after HTTP 200).
     pub upstream_status: Option<u16>,

@@ -50,11 +50,26 @@ pub struct ServerConfig {
     pub metrics_addr: String,
     /// Log format: `"text"` or `"json"`.
     pub log_format: String,
+    /// Optional `service.name` on emitted events when the Ollama normalizer runs.
+    ///
+    /// Non-empty TOML value wins over the `MARA_SERVICE_NAME` environment variable.
+    #[serde(default)]
+    pub telemetry_service_name: Option<String>,
+    /// Optional `service.version` on emitted events when the Ollama normalizer runs.
+    ///
+    /// Non-empty TOML value wins over `MARA_SERVICE_VERSION`.
+    #[serde(default)]
+    pub telemetry_service_version: Option<String>,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { metrics_addr: "127.0.0.1:9099".into(), log_format: "text".into() }
+        Self {
+            metrics_addr: "127.0.0.1:9099".into(),
+            log_format: "text".into(),
+            telemetry_service_name: None,
+            telemetry_service_version: None,
+        }
     }
 }
 
@@ -410,6 +425,33 @@ sinks = ["out1"]
         assert_eq!(cfg.sinks.stdout.len(), 1);
         assert_eq!(cfg.pipelines.len(), 1);
         assert_eq!(cfg.pipelines[0].policy_chain, "default");
+    }
+
+    #[test]
+    fn parses_server_telemetry_fields() {
+        let raw = r#"
+schema_version = "1"
+
+[server]
+telemetry_service_name = "fixture-mara"
+telemetry_service_version = "0.0.0-test"
+
+[[adapters.jsonl]]
+name = "in1"
+globs = ["/tmp/events*.jsonl"]
+checkpoint_path = "/tmp/mara-ckpt"
+
+[[sinks.stdout]]
+name = "out1"
+
+[[pipelines]]
+name = "p1"
+adapters = ["in1"]
+sinks = ["out1"]
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse ok");
+        assert_eq!(cfg.server.telemetry_service_name.as_deref(), Some("fixture-mara"));
+        assert_eq!(cfg.server.telemetry_service_version.as_deref(), Some("0.0.0-test"));
     }
 
     #[test]

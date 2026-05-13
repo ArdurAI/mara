@@ -28,6 +28,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::ProxyFailureKind;
 use crate::exchange::{ProxiedRequest, ProxiedResponse};
 use crate::normalizer::UpstreamNormalizer;
 
@@ -250,7 +251,7 @@ async fn emit_proxy_failure(
     parts: &http::request::Parts,
     req_body: Bytes,
     req_trunc: bool,
-    failure_kind: &'static str,
+    failure_kind: ProxyFailureKind,
     message: &str,
     upstream_status: Option<u16>,
     normalizer: &Arc<dyn UpstreamNormalizer>,
@@ -263,7 +264,7 @@ async fn emit_proxy_failure(
         headers: Vec::new(),
         body: Bytes::copy_from_slice(message.as_bytes()),
         body_truncated: false,
-        failure_kind: Some(failure_kind.to_owned()),
+        failure_kind: Some(failure_kind.as_str().to_owned()),
         upstream_status,
         stream_cut_short: false,
     };
@@ -290,7 +291,7 @@ async fn process_one(
                 &parts,
                 Bytes::new(),
                 false,
-                "client_body_read",
+                ProxyFailureKind::ClientBodyRead,
                 "read client body failed",
                 None,
                 &normalizer,
@@ -313,7 +314,7 @@ async fn process_one(
             &parts,
             req_body,
             req_trunc,
-            "upstream_config",
+            ProxyFailureKind::UpstreamConfig,
             "upstream uri missing authority",
             None,
             &normalizer,
@@ -333,7 +334,7 @@ async fn process_one(
             &parts,
             req_body,
             req_trunc,
-            "upstream_join",
+            ProxyFailureKind::UpstreamJoin,
             "could not join upstream uri",
             None,
             &normalizer,
@@ -353,7 +354,7 @@ async fn process_one(
                 &parts,
                 req_body,
                 req_trunc,
-                "header_forward",
+                ProxyFailureKind::HeaderForward,
                 &e.to_string(),
                 None,
                 &normalizer,
@@ -381,7 +382,7 @@ async fn process_one(
                 &parts,
                 req_body,
                 req_trunc,
-                "upstream_request_build",
+                ProxyFailureKind::UpstreamRequestBuild,
                 &e.to_string(),
                 None,
                 &normalizer,
@@ -402,7 +403,7 @@ async fn process_one(
                 &parts,
                 req_body,
                 req_trunc,
-                "upstream_transport",
+                ProxyFailureKind::UpstreamTransport,
                 &e.to_string(),
                 None,
                 &normalizer,
@@ -492,7 +493,7 @@ async fn process_one(
                 headers: Vec::new(),
                 body: Bytes::copy_from_slice(b"read upstream body failed"),
                 body_truncated: false,
-                failure_kind: Some("upstream_body_read".into()),
+                failure_kind: Some(ProxyFailureKind::UpstreamBodyRead.as_str().to_owned()),
                 upstream_status: Some(up_status),
                 stream_cut_short: false,
             };

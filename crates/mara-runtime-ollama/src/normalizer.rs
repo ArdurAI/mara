@@ -2,11 +2,55 @@
 
 use mara_adapter_llm_proxy::{ProxiedRequest, ProxiedResponse, UpstreamNormalizer};
 use mara_core::Event;
+use mara_core::config::ServerConfig;
 use mara_schema::{AttrValue, EventKind, Resource, Severity, SourceRuntime};
 
 /// Maps proxied Ollama HTTP exchanges to canonical Mara events.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct OllamaNormalizer;
+#[derive(Clone, Debug)]
+pub struct OllamaNormalizer {
+    telemetry_service_name: Option<String>,
+    telemetry_service_version: Option<String>,
+}
+
+impl OllamaNormalizer {
+    /// Build normalizer resource defaults from `[server]` plus environment fallbacks.
+    ///
+    /// Precedence: non-empty `server.telemetry_service_*` **overrides** `MARA_SERVICE_*` env vars.
+    #[must_use]
+    pub fn from_server(server: &ServerConfig) -> Self {
+        let name = server
+            .telemetry_service_name
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("MARA_SERVICE_NAME").ok().filter(|s| !s.is_empty()));
+        let version = server
+            .telemetry_service_version
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("MARA_SERVICE_VERSION").ok().filter(|s| !s.is_empty()));
+        Self { telemetry_service_name: name, telemetry_service_version: version }
+    }
+
+    fn base_event(&self, session_id: &str) -> Event {
+        let mut ev = Event::now(EventKind::System, "mara-runtime-ollama");
+        ev.mara.session_id = Some(session_id.to_owned());
+        ev.resource = Resource {
+            service_name: self.telemetry_service_name.clone(),
+            service_version: self.telemetry_service_version.clone(),
+            host_name: hostname::get().ok().and_then(|h| h.into_string().ok()),
+            process_pid: Some(std::process::id()),
+            source_runtime: Some(SourceRuntime::Ollama),
+            ..Default::default()
+        };
+        ev
+    }
+}
+
+impl Default for OllamaNormalizer {
+    fn default() -> Self {
+        Self::from_server(&ServerConfig::default())
+    }
+}
 
 impl UpstreamNormalizer for OllamaNormalizer {
     fn normalize(
@@ -16,7 +60,7 @@ impl UpstreamNormalizer for OllamaNormalizer {
         response: &ProxiedResponse,
     ) -> Vec<Event> {
         if !(200..300).contains(&response.status) {
-            let mut ev = base_event(session_id);
+            let mut ev = self.base_event(session_id);
             ev.event_kind = EventKind::Error;
             ev.severity = Severity::ERROR;
             ev.attributes
@@ -29,10 +73,11 @@ impl UpstreamNormalizer for OllamaNormalizer {
                 ev.attributes
                     .insert("mara.proxy.upstream_status".into(), AttrValue::Int(i64::from(us)));
             }
+            apply_client_correlation(&mut ev, request);
             return vec![ev];
         }
 
-        let mut ev = base_event(session_id);
+        let mut ev = self.base_event(session_id);
         ev.gen_ai.system = Some("ollama".into());
         if response.stream_cut_short {
             ev.attributes.insert("mara.ollama.partial".into(), AttrValue::Bool(true));
@@ -48,6 +93,7 @@ impl UpstreamNormalizer for OllamaNormalizer {
         }
 
         apply_request_fields(&mut ev, request);
+        apply_client_correlation(&mut ev, request);
 
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&response.body) {
             apply_json_fields(&mut ev, &v);
@@ -68,17 +114,56 @@ impl UpstreamNormalizer for OllamaNormalizer {
     }
 }
 
-fn base_event(session_id: &str) -> Event {
-    let mut ev = Event::now(EventKind::System, "mara-runtime-ollama");
-    ev.mara.session_id = Some(session_id.to_owned());
-    ev.resource = Resource {
-        service_name: std::env::var("MARA_SERVICE_NAME").ok().filter(|s| !s.is_empty()),
-        host_name: hostname::get().ok().and_then(|h| h.into_string().ok()),
-        process_pid: Some(std::process::id()),
-        source_runtime: Some(SourceRuntime::Ollama),
-        ..Default::default()
-    };
-    ev
+/// Copies `gen_ai.conversation_id` and `mara.turn_id` when the client supplies them (M1-02).
+///
+/// Precedence: non-empty JSON (`conversation_id`, `turn_id`, or under `metadata`) wins over
+/// HTTP headers. Headers checked (case-insensitive): `X-Mara-Conversation-Id`, `X-Conversation-Id`,
+/// `X-Mara-Turn-Id`, `X-Turn-Id`.
+fn apply_client_correlation(ev: &mut Event, request: &ProxiedRequest) {
+    let mut conversation: Option<String> = None;
+    let mut turn: Option<String> = None;
+
+    if !request.body_truncated
+        && !request.body.is_empty()
+        && let Ok(v) = serde_json::from_slice::<serde_json::Value>(&request.body)
+    {
+        conversation = json_nonempty_string(v.get("conversation_id"))
+            .or_else(|| json_nonempty_string(v.pointer("/metadata/conversation_id")));
+        turn = json_nonempty_string(v.get("turn_id"))
+            .or_else(|| json_nonempty_string(v.pointer("/metadata/turn_id")));
+    }
+
+    if conversation.is_none() {
+        conversation =
+            first_request_header(request, &["x-mara-conversation-id", "x-conversation-id"]);
+    }
+    if turn.is_none() {
+        turn = first_request_header(request, &["x-mara-turn-id", "x-turn-id"]);
+    }
+
+    if let Some(s) = conversation {
+        ev.gen_ai.conversation_id = Some(s);
+    }
+    if let Some(s) = turn {
+        ev.mara.turn_id = Some(s);
+    }
+}
+
+fn json_nonempty_string(v: Option<&serde_json::Value>) -> Option<String> {
+    let t = v?.as_str()?.trim();
+    if t.is_empty() { None } else { Some(t.to_owned()) }
+}
+
+fn first_request_header(request: &ProxiedRequest, header_names: &[&str]) -> Option<String> {
+    for (k, val) in &request.headers {
+        if header_names.iter().any(|want| k.as_str().eq_ignore_ascii_case(want)) {
+            let t = val.trim();
+            if !t.is_empty() {
+                return Some(t.to_owned());
+            }
+        }
+    }
+    None
 }
 
 /// Fills `gen_ai.request` (and client `stream` intent on `gen_ai.response.is_streaming`) from the
@@ -111,7 +196,9 @@ fn apply_request_fields(ev: &mut Event, request: &ProxiedRequest) {
     if let Some(k) = pick("top_k").and_then(serde_json::Value::as_u64) {
         ev.gen_ai.request.top_k = Some(k.min(u64::from(u32::MAX)) as u32);
     }
-    if let Some(n) = pick("num_predict").or_else(|| v.get("max_tokens")).and_then(|x| x.as_u64()) {
+    if let Some(n) =
+        pick("num_predict").or_else(|| v.get("max_tokens")).and_then(serde_json::Value::as_u64)
+    {
         ev.gen_ai.request.max_tokens = Some(n.min(u64::from(u32::MAX)) as u32);
     }
     if let Some(s) = pick("seed").and_then(serde_json::Value::as_i64) {
@@ -232,7 +319,7 @@ mod tests {
 
     #[test]
     fn parses_native_chat_counters() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/api/chat".into(),
@@ -253,7 +340,7 @@ mod tests {
 
     #[test]
     fn proxy_synthetic_502_records_failure_kind() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/api/chat".into(),
@@ -282,7 +369,7 @@ mod tests {
 
     #[test]
     fn upstream_503_records_http_status() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/v1/chat/completions".into(),
@@ -306,8 +393,30 @@ mod tests {
     }
 
     #[test]
+    fn server_config_sets_resource_service_name_and_version() {
+        let server = mara_core::config::ServerConfig {
+            telemetry_service_name: Some("from-toml".into()),
+            telemetry_service_version: Some("1.2.3".into()),
+            ..Default::default()
+        };
+        let n = OllamaNormalizer::from_server(&server);
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![],
+            body: Bytes::new(),
+            body_truncated: false,
+        };
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(br#"{}"#), false);
+        let evs = n.normalize("svc-test", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.resource.service_name.as_deref(), Some("from-toml"));
+        assert_eq!(ev.resource.service_version.as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
     fn parses_openai_compat_chat_usage() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/v1/chat/completions".into(),
@@ -328,7 +437,7 @@ mod tests {
 
     #[test]
     fn fills_generate_request_from_client_json_and_response_meta() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/api/generate".into(),
@@ -356,7 +465,7 @@ mod tests {
 
     #[test]
     fn fills_openai_compat_request_top_level_tuning() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/v1/chat/completions".into(),
@@ -379,10 +488,10 @@ mod tests {
         assert_eq!(ev.gen_ai.usage.total_tokens, Some(3));
     }
 
-    /// M0 guardrail: `/api/generate` success path must always expose core gen_ai fields for operators.
+    /// M0 guardrail: `/api/generate` success path must always expose core `gen_ai` fields for operators.
     #[test]
     fn guardrail_api_generate_requires_operation_usage_and_models() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/api/generate".into(),
@@ -405,10 +514,10 @@ mod tests {
         assert_eq!(ev.gen_ai.response.finish_reasons, vec!["stop"]);
     }
 
-    /// M0 guardrail: `/api/chat` success path must always expose core gen_ai fields for operators.
+    /// M0 guardrail: `/api/chat` success path must always expose core `gen_ai` fields for operators.
     #[test]
     fn guardrail_api_chat_requires_operation_usage_and_models() {
-        let n = OllamaNormalizer;
+        let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
             method: "POST".into(),
             path_and_query: "/api/chat".into(),
@@ -430,5 +539,94 @@ mod tests {
         assert_eq!(ev.gen_ai.usage.output_tokens, Some(3));
         assert_eq!(ev.gen_ai.usage.total_tokens, Some(14));
         assert_eq!(ev.gen_ai.response.finish_reasons, vec!["stop"]);
+    }
+
+    #[test]
+    fn correlation_from_metadata_json() {
+        let n = OllamaNormalizer::default();
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"m","stream":false,"metadata":{"conversation_id":"c-1","turn_id":"t-9"}}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("meta-corr", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.conversation_id.as_deref(), Some("c-1"));
+        assert_eq!(ev.mara.turn_id.as_deref(), Some("t-9"));
+    }
+
+    #[test]
+    fn correlation_from_headers_when_json_omits() {
+        let n = OllamaNormalizer::default();
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![
+                ("X-Mara-Conversation-Id".into(), "hdr-conv".into()),
+                ("X-Turn-Id".into(), "hdr-turn".into()),
+            ],
+            body: Bytes::from_static(br#"{"model":"m","messages":[],"stream":false}"#),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("hdr-corr", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.conversation_id.as_deref(), Some("hdr-conv"));
+        assert_eq!(ev.mara.turn_id.as_deref(), Some("hdr-turn"));
+    }
+
+    #[test]
+    fn correlation_json_overrides_headers() {
+        let n = OllamaNormalizer::default();
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/generate".into(),
+            headers: vec![
+                ("x-mara-conversation-id".into(), "from-header".into()),
+                ("X-Mara-Turn-Id".into(), "turn-hdr".into()),
+            ],
+            body: Bytes::from_static(
+                br#"{"model":"m","prompt":"x","stream":false,"conversation_id":"from-json","turn_id":"turn-json"}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"m","response":"y","prompt_eval_count":1,"eval_count":1}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("json-wins", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.conversation_id.as_deref(), Some("from-json"));
+        assert_eq!(ev.mara.turn_id.as_deref(), Some("turn-json"));
+    }
+
+    #[test]
+    fn correlation_on_error_events() {
+        let n = OllamaNormalizer::default();
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![("X-Conversation-Id".into(), "err-corr".into())],
+            body: Bytes::from_static(br#"{"model":"m","stream":false}"#),
+            body_truncated: false,
+        };
+        let resp = ProxiedResponse {
+            status: 502,
+            headers: vec![],
+            body: Bytes::from_static(b"nope"),
+            body_truncated: false,
+            failure_kind: Some("upstream_transport".into()),
+            upstream_status: None,
+            stream_cut_short: false,
+        };
+        let evs = n.normalize("corr-err", &req, &resp);
+        let ev = &evs[0];
+        assert!(matches!(ev.event_kind, EventKind::Error));
+        assert_eq!(ev.gen_ai.conversation_id.as_deref(), Some("err-corr"));
     }
 }

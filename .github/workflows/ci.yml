@@ -64,6 +64,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run mock Ollama + Mara + field checks
         run: bash scripts/benchmarks/ollama_proxy_smoke.sh
+      - name: Telemetry quality report matches fixture baseline
+        run: |
+          python3 scripts/benchmarks/telemetry_quality_report.py docs/captured/fixtures/ollama-proxy-smoke-sample.jsonl > /tmp/telemetry-quality.md
+          diff -u docs/captured/telemetry-quality-from-fixture.md /tmp/telemetry-quality.md
 
   build:
     name: build (${{ matrix.target }})

@@ -34,7 +34,7 @@ Mara reliably captures meaningful Ollama telemetry and flags regressions early.
 | M0-01 | P0 | [x] | Promote 30-min real-world run into a repeatable harness | Platform | 2026-05-17 | Script runs end-to-end on a clean machine and consistently outputs `events.jsonl`, `run.log`, `mara-run.log`, and `FINDINGS.md`. |
 | M0-02 | P0 | [x] | Add CI smoke benchmark (3–5 min) | Platform | 2026-05-20 | CI fails when event count is zero or required field fill-rate drops below threshold. |
 | M0-03 | P0 | [x] | Add field-completeness guardrail tests | Runtime | 2026-05-16 | Tests enforce non-null `request.model`, `response.model`, `operation_name`, and `usage` for known payloads. |
-| M0-04 | P1 | [ ] | Generate baseline telemetry quality report | Observability | 2026-05-21 | Report emits null/fill-rate by key fields and is checked in under `docs/captured/`. |
+| M0-04 | P1 | [x] | Generate baseline telemetry quality report | Observability | 2026-05-21 | Report emits null/fill-rate by key fields and is checked in under `docs/captured/`. |
 | M0-05 | P0 | [x] | Publish operator doc for null-field behavior | Runtime | 2026-05-16 | Doc explains why fields are null and how to populate/enrich them in practice. |
 
 ## M1 — Make It Operational (2–6 weeks)
@@ -45,12 +45,12 @@ Mara is practical as a telemetry + derived-metrics layer for real operations.
 
 | Ticket | Priority | Status | Task | Owner | ETA | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| M1-01 | P0 | [~] | Add `resource.*` enrichment defaults | Runtime | 2026-05-28 | `host_name` + `process_pid` always on Ollama events; optional `service_name` via `MARA_SERVICE_NAME` (config wiring next). |
-| M1-02 | P0 | [ ] | Add conversation/turn correlation fields | Runtime | 2026-05-30 | `conversation_id` and/or `turn_id` are captured when client context is present. |
+| M1-01 | P0 | [x] | Add `resource.*` enrichment defaults | Runtime | 2026-05-28 | `host_name` + `process_pid` always on Ollama events; optional `service_name` / `service_version` via `[server].telemetry_*` or `MARA_SERVICE_*`. |
+| M1-02 | P0 | [x] | Add conversation/turn correlation fields | Runtime | 2026-05-30 | `gen_ai.conversation_id` and `mara.turn_id` are captured from client JSON (`conversation_id` / `turn_id` / `metadata.*`) or correlation headers when present. |
 | M1-03 | P0 | [ ] | Add trace propagation support | Platform | 2026-06-03 | Inbound `traceparent` maps to non-null `trace_id`/`span_id` in emitted events. |
 | M1-04 | P1 | [ ] | Implement cost estimator v1 | Observability | 2026-06-05 | `cost_usd` is computed from model usage + pricing map with documented assumptions. |
 | M1-05 | P1 | [ ] | Ship derived metrics pack and starter dashboard | Observability | 2026-06-06 | Request rate, tokens, p95 latency, error rate, and cost are queryable out of the box. |
-| M1-06 | P0 | [ ] | Harden error taxonomy and mappings | Runtime | 2026-05-29 | Error classes are stable and covered by tests (transport, timeout, upstream 5xx, parse). |
+| M1-06 | P0 | [x] | Harden error taxonomy and mappings | Runtime | 2026-05-29 | `ProxyFailureKind` enum + `docs/ollama-proxy-error-taxonomy.md`; synthetic 502 `failure_kind` strings are stable and unit-tested. |
 | M1-07 | P1 | [ ] | Add privacy modes (metadata-only/hashed/body-opt-in) | Security/Policy | 2026-06-10 | Policy and config toggles are tested and documented for each mode. |
 
 ## M2 — Cross-Runtime + Agent-Native Differentiation (6–12 weeks)
@@ -76,14 +76,14 @@ Mara is clearly differentiated through cross-runtime and agent-level observabili
 - [x] P0 M0-01 Promote 30-min real-world run into repeatable harness
 - [x] P0 M0-02 Add CI smoke benchmark
 - [x] P0 M0-03 Add field-completeness guardrail tests
-- [ ] P1 M0-04 Generate baseline telemetry quality report
+- [x] P1 M0-04 Generate baseline telemetry quality report
 - [x] P0 M0-05 Publish null-field operator doc
-- [~] P0 M1-01 Add `resource.*` enrichment defaults
-- [ ] P0 M1-06 Harden error taxonomy and mappings
+- [x] P0 M1-01 Add `resource.*` enrichment defaults
+- [x] P0 M1-06 Harden error taxonomy and mappings
 
 ### Next Sprint
 
-- [ ] P0 M1-02 Add conversation/turn correlation fields
+- [x] P0 M1-02 Add conversation/turn correlation fields
 - [ ] P0 M1-03 Add trace propagation support
 - [ ] P1 M1-04 Implement cost estimator v1
 - [ ] P1 M1-05 Ship derived metrics pack and starter dashboard
@@ -108,9 +108,9 @@ Mara is clearly differentiated through cross-runtime and agent-level observabili
 
 | Owner | Tickets | Notes |
 |---|---:|---|
-| Runtime | 3 | M0-03, M0-05, M1-01; highest implementation load this sprint. |
+| Runtime | 3 | M0-03, M0-05, M1-01 (done); highest implementation load this sprint. |
 | Platform | 2 | M0-01, M0-02; CI + harness reliability focus. |
-| Observability | 1 | M0-04; baseline reporting can parallelize with Runtime work. |
+| Observability | 1 | M0-04 (done): fixture report + CI diff. |
 | Security/Policy | 0 | No dedicated ticket in this sprint (can advise on doc/review). |
 | Integrations | 0 | No dedicated ticket in this sprint. |
 

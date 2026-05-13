@@ -46,6 +46,14 @@ def main() -> int:
             failures.append(f"{prefix}: missing resource.process_pid")
         if not res.get("host_name"):
             failures.append(f"{prefix}: missing resource.host_name")
+        if res.get("service_name") != "mara-ollama-smoke":
+            failures.append(
+                f"{prefix}: expected resource.service_name 'mara-ollama-smoke', got {res.get('service_name')!r}"
+            )
+        if res.get("service_version") != "ci":
+            failures.append(
+                f"{prefix}: expected resource.service_version 'ci', got {res.get('service_version')!r}"
+            )
 
     if checked < 2:
         failures.append(f"expected at least 2 completion rows (chat+generate), got {checked}")

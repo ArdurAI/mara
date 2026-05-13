@@ -12,17 +12,18 @@ This page summarizes **what the HTTP reverse proxy + Ollama normalizer** put int
 | **`gen_ai.usage.total_tokens`** | `usage.total_tokens` in the response, or **input + output** when both are known. |
 | **`attributes` (`mara.ollama.*`)** | Durations in nanoseconds are present in the upstream JSON (`total_duration`, `load_duration`, …). |
 | **`mara.session_id`** | One UUID per proxied HTTP exchange (correlation id for that call). |
-| **`resource.host_name` / `resource.process_pid`** | Set on every Ollama-normalized event (host + Mara's PID). Optional `resource.service_name` via `MARA_SERVICE_NAME`. |
+| **`resource.host_name` / `resource.process_pid`** | Set on every Ollama-normalized event (host + Mara's PID). Optional `resource.service_name` / `service_version` from `[server].telemetry_*` or `MARA_SERVICE_*`. |
+| **`gen_ai.conversation_id` / `mara.turn_id`** | Client JSON (`conversation_id`, `turn_id`, `metadata.*`) or correlation headers (`X-Mara-Conversation-Id`, `X-Conversation-Id`, `X-Mara-Turn-Id`, `X-Turn-Id`). |
 
 \*Request-side fields that are **not** in the client JSON (or are under different keys we do not parse yet) remain unset.
 
 ## Fields that often stay `null` (by design or not wired yet)
 
-- **`resource.service_name`**: unless `MARA_SERVICE_NAME` is set (config wiring planned).
-- **`resource.service_version`**: not wired yet.
+- **`resource.service_name` / `service_version`**: unless `[server].telemetry_*` or `MARA_SERVICE_*` is set.
 - **`trace_id` / `span_id`**: no W3C `traceparent` propagation from the proxy yet.
 - **`body`**, **`body_hashes`**: raw prompt/completion capture is off by default (privacy / volume).
-- **`mcp`, `tool`, `agent`, `conversation_id`**: unused for plain Ollama HTTP.
+- **`mcp`, `tool`, `agent`**: unused for plain Ollama HTTP.
+- **`gen_ai.conversation_id` / `mara.turn_id`**: unless the client sends correlation JSON or headers (see [`ollama-null-fields.md`](ollama-null-fields.md)).
 - **`reasoning_tokens`**: not mapped unless we add a stable field from Ollama/OpenAI payloads.
 - **`cost_usd`**: placeholder `0` with `mara_estimated` until pricing hooks exist.
 
@@ -87,11 +88,12 @@ Ubuntu CI runs `scripts/benchmarks/ollama_proxy_smoke.sh` (mock Ollama + `mara` 
 
 ## Operator null-field guide
 
-See [`ollama-null-fields.md`](ollama-null-fields.md).
+See [`ollama-null-fields.md`](ollama-null-fields.md) and [`ollama-proxy-error-taxonomy.md`](ollama-proxy-error-taxonomy.md) for synthetic proxy failures.
 
 ## Related code
 
 - Normalizer: `crates/mara-runtime-ollama/src/normalizer.rs`
-- Proxy capture: `crates/mara-adapter-llm-proxy/src/http_proxy.rs`, `exchange.rs`
+- Proxy capture: `crates/mara-adapter-llm-proxy/src/http_proxy.rs`, `exchange.rs`, `proxy_failure_kind.rs`
 - Smoke harness: `scripts/benchmarks/ollama_proxy_smoke.sh`, `scripts/benchmarks/mock_ollama_upstream.py`, `scripts/benchmarks/check_ollama_proxy_events.py`
+- Telemetry quality report: `scripts/benchmarks/telemetry_quality_report.py`, fixture `docs/captured/fixtures/ollama-proxy-smoke-sample.jsonl`
 - Long-run harness: `scripts/realworld/run-30min-site-research.sh`

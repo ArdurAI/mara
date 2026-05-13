@@ -18,10 +18,12 @@
 mod exchange;
 mod http_proxy;
 mod normalizer;
+mod proxy_failure_kind;
 
 pub use exchange::{ProxiedRequest, ProxiedResponse};
 pub use http_proxy::{LlmProxyAdapter, LlmProxyAdapterConfig};
 pub use normalizer::{PassthroughNormalizer, UpstreamNormalizer};
+pub use proxy_failure_kind::ProxyFailureKind;
 
 /// Marker for the proxy adapter's pattern.
 pub const ADAPTER_KIND: &str = "llm-proxy";

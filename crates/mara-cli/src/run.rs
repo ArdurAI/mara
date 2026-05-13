@@ -15,7 +15,7 @@ use mara_adapter_otlp::{OtlpHttpAdapter, OtlpHttpAdapterConfig};
 use mara_core::config::{
     Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl,
     LlmProxyAdapterConfig as CfgLlmProxy, OtlpAdapterConfig as CfgOtlp,
-    OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig,
+    OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig, ServerConfig,
     StdoutSinkConfig as ConfigStdoutSinkConfig,
 };
 use mara_core::policy::{Policy, PolicyChain};
@@ -32,8 +32,12 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     let cfg = load_config(config_path)?;
 
     // Build adapters by name.
-    let adapters_by_name =
-        build_adapters(&cfg.adapters.jsonl, &cfg.adapters.otlp, &cfg.adapters.llm_proxy);
+    let adapters_by_name = build_adapters(
+        &cfg.server,
+        &cfg.adapters.jsonl,
+        &cfg.adapters.otlp,
+        &cfg.adapters.llm_proxy,
+    );
 
     // Build sinks by name.
     let sinks_by_name = build_sinks(&cfg.sinks.file, &cfg.sinks.stdout, &cfg.sinks.otlp);
@@ -78,9 +82,9 @@ fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
     }
 }
 
-fn llm_proxy_normalizer(kind: &str) -> Arc<dyn UpstreamNormalizer> {
+fn llm_proxy_normalizer(kind: &str, server: &ServerConfig) -> Arc<dyn UpstreamNormalizer> {
     match kind {
-        "ollama" => Arc::new(OllamaNormalizer),
+        "ollama" => Arc::new(OllamaNormalizer::from_server(server)),
         "passthrough" => Arc::new(PassthroughNormalizer),
         _ => {
             warn!(
@@ -93,6 +97,7 @@ fn llm_proxy_normalizer(kind: &str) -> Arc<dyn UpstreamNormalizer> {
 }
 
 fn build_adapters(
+    server: &ServerConfig,
     jsonl_cfgs: &[CfgJsonl],
     otlp_cfgs: &[CfgOtlp],
     llm_proxy_cfgs: &[CfgLlmProxy],
@@ -141,7 +146,7 @@ fn build_adapters(
         };
         let mut pcfg = LlmProxyAdapterConfig::new(c.name.clone(), listen, upstream);
         pcfg.max_body_bytes = c.max_body_bytes;
-        let nz = llm_proxy_normalizer(c.normalizer.as_str());
+        let nz = llm_proxy_normalizer(c.normalizer.as_str(), server);
         out.insert(c.name.clone(), Arc::new(LlmProxyAdapter::new(pcfg, nz)));
     }
     out
