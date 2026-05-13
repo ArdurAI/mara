@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Mara — AI-native telemetry</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { color: #1a365d; }
+    code { background: #edf2f7; padding: 0.1em 0.35em; border-radius: 4px; }
+    nav { margin: 1rem 0; padding: 0.75rem; background: #f7fafc; border-radius: 8px; }
+    nav a { margin-right: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mara</h1>
+    <p><strong>AI-native log shipper and telemetry agent</strong> for AI agents and LLM workloads — Rust, OpenTelemetry <code>gen_ai.*</code>, Apache 2.0.</p>
+  </header>
+  <nav>
+    <a href="#capture">What it captures</a>
+    <a href="#ship">Where it ships</a>
+    <a href="#design">Design</a>
+    <a href="#ollama">Ollama</a>
+  </nav>
+
+  <section id="capture">
+    <h2>What Mara captures</h2>
+    <ul>
+      <li><strong>Tier A:</strong> OpenTelemetry receive — Claude Code, Codex, Gemini CLI.</li>
+      <li><strong>Tier B:</strong> JSONL / hooks — Cursor Agents, Kimi; redundant signal for ZDR.</li>
+      <li><strong>Tier C:</strong> Analytics REST — Augment Code.</li>
+      <li><strong>Proxy tier:</strong> HTTP reverse proxy for runtimes without native telemetry — <strong>Ollama</strong>.</li>
+    </ul>
+    <p>MVP focus: Claude Code (Tier A) and Ollama (proxy) end-to-end.</p>
+  </section>
+
+  <section id="ship">
+    <h2>Where Mara ships</h2>
+    <p>OTLP (gRPC + HTTP), Loki, Splunk HEC, Elasticsearch, object stores (JSONL + Parquet), Kafka, Prometheus remote write, local files, stdout, webhooks.</p>
+  </section>
+
+  <section id="design">
+    <h2>Design pillars</h2>
+    <ul>
+      <li>Edge-first single binary; optional gateway (v2); optional control plane (v3).</li>
+      <li>Canonical schema aligned with OpenTelemetry <code>gen_ai.*</code>.</li>
+      <li>WASM-sandboxed policy with PII/PHI/PCI packs.</li>
+      <li>Zero phone-home; raw-body capture opt-in; ZDR-respecting.</li>
+    </ul>
+  </section>
+
+  <section id="ollama">
+    <h2>Ollama proxy</h2>
+    <p>Point clients at Mara’s listen address instead of <code>:11434</code>. Mara forwards to upstream Ollama, normalizes completions to canonical events (model, usage, durations), and writes JSONL or other sinks.</p>
+    <p>Cloud models (e.g. <code>gpt-oss:120b-cloud</code>) use the same API; telemetry shape matches local runs.</p>
+  </section>
+
+  <footer>
+    <p><small>Demo static site for long-run telemetry tests. Content summarized from the Mara README.</small></p>
+  </footer>
+</body>
+</html>

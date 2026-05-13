@@ -54,6 +54,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-targets --no-fail-fast
 
+  ollama-proxy-smoke:
+    name: ollama proxy smoke (mock upstream)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run mock Ollama + Mara + field checks
+        run: bash scripts/benchmarks/ollama_proxy_smoke.sh
+
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}

@@ -71,7 +71,13 @@ impl UpstreamNormalizer for OllamaNormalizer {
 fn base_event(session_id: &str) -> Event {
     let mut ev = Event::now(EventKind::System, "mara-runtime-ollama");
     ev.mara.session_id = Some(session_id.to_owned());
-    ev.resource = Resource { source_runtime: Some(SourceRuntime::Ollama), ..Default::default() };
+    ev.resource = Resource {
+        service_name: std::env::var("MARA_SERVICE_NAME").ok().filter(|s| !s.is_empty()),
+        host_name: hostname::get().ok().and_then(|h| h.into_string().ok()),
+        process_pid: Some(std::process::id()),
+        source_runtime: Some(SourceRuntime::Ollama),
+        ..Default::default()
+    };
     ev
 }
 
@@ -105,10 +111,7 @@ fn apply_request_fields(ev: &mut Event, request: &ProxiedRequest) {
     if let Some(k) = pick("top_k").and_then(serde_json::Value::as_u64) {
         ev.gen_ai.request.top_k = Some(k.min(u64::from(u32::MAX)) as u32);
     }
-    if let Some(n) = pick("num_predict")
-        .or_else(|| v.get("max_tokens"))
-        .and_then(|x| x.as_u64())
-    {
+    if let Some(n) = pick("num_predict").or_else(|| v.get("max_tokens")).and_then(|x| x.as_u64()) {
         ev.gen_ai.request.max_tokens = Some(n.min(u64::from(u32::MAX)) as u32);
     }
     if let Some(s) = pick("seed").and_then(serde_json::Value::as_i64) {
@@ -162,7 +165,8 @@ fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
     if let Some(n) = v.pointer("/usage/total_tokens").and_then(serde_json::Value::as_u64) {
         ev.gen_ai.usage.total_tokens = Some(n);
     }
-    if let Some(n) = v.pointer("/usage/prompt_tokens_details/cache_read_tokens")
+    if let Some(n) = v
+        .pointer("/usage/prompt_tokens_details/cache_read_tokens")
         .or_else(|| v.pointer("/usage/cache_read_input_tokens"))
         .and_then(serde_json::Value::as_u64)
     {
@@ -173,7 +177,8 @@ fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
     }
     if let Some(dr) = v.get("done_reason").and_then(serde_json::Value::as_str) {
         ev.gen_ai.response.finish_reasons = vec![dr.to_owned()];
-    } else if let Some(fr) = v.pointer("/choices/0/finish_reason").and_then(serde_json::Value::as_str)
+    } else if let Some(fr) =
+        v.pointer("/choices/0/finish_reason").and_then(serde_json::Value::as_str)
     {
         ev.gen_ai.response.finish_reasons = vec![fr.to_owned()];
     }
@@ -296,6 +301,8 @@ mod tests {
         let ev = &evs[0];
         assert!(matches!(ev.event_kind, EventKind::Error));
         assert_eq!(ev.attributes.get("http.status_code"), Some(&AttrValue::Int(503)));
+        assert_eq!(ev.resource.process_pid, Some(std::process::id()));
+        assert_eq!(ev.resource.source_runtime, Some(mara_schema::SourceRuntime::Ollama));
     }
 
     #[test]
@@ -370,5 +377,58 @@ mod tests {
         assert_eq!(ev.gen_ai.request.stop_sequences, vec!["USER:"]);
         assert_eq!(ev.gen_ai.response.finish_reasons, vec!["length"]);
         assert_eq!(ev.gen_ai.usage.total_tokens, Some(3));
+    }
+
+    /// M0 guardrail: `/api/generate` success path must always expose core gen_ai fields for operators.
+    #[test]
+    fn guardrail_api_generate_requires_operation_usage_and_models() {
+        let n = OllamaNormalizer;
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/generate".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"llama3.2:latest","prompt":"hi","stream":false}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"llama3.2:latest","response":"ok","done":true,"done_reason":"stop","prompt_eval_count":9,"eval_count":4}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("guard-gen", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.operation_name.as_deref(), Some("text_completion"));
+        assert_eq!(ev.gen_ai.request.model.as_deref(), Some("llama3.2:latest"));
+        assert_eq!(ev.gen_ai.response.model.as_deref(), Some("llama3.2:latest"));
+        assert_eq!(ev.gen_ai.usage.input_tokens, Some(9));
+        assert_eq!(ev.gen_ai.usage.output_tokens, Some(4));
+        assert_eq!(ev.gen_ai.usage.total_tokens, Some(13));
+        assert_eq!(ev.gen_ai.response.finish_reasons, vec!["stop"]);
+    }
+
+    /// M0 guardrail: `/api/chat` success path must always expose core gen_ai fields for operators.
+    #[test]
+    fn guardrail_api_chat_requires_operation_usage_and_models() {
+        let n = OllamaNormalizer;
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"llama3.2:latest","messages":[{"role":"user","content":"hi"}],"stream":false}"#,
+            ),
+            body_truncated: false,
+        };
+        let body = br#"{"model":"llama3.2:latest","message":{"role":"assistant","content":"ok"},"done":true,"done_reason":"stop","prompt_eval_count":11,"eval_count":3}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("guard-chat", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.gen_ai.operation_name.as_deref(), Some("chat"));
+        assert!(matches!(ev.event_kind, EventKind::Completion));
+        assert_eq!(ev.gen_ai.request.model.as_deref(), Some("llama3.2:latest"));
+        assert_eq!(ev.gen_ai.response.model.as_deref(), Some("llama3.2:latest"));
+        assert_eq!(ev.gen_ai.usage.input_tokens, Some(11));
+        assert_eq!(ev.gen_ai.usage.output_tokens, Some(3));
+        assert_eq!(ev.gen_ai.usage.total_tokens, Some(14));
+        assert_eq!(ev.gen_ai.response.finish_reasons, vec!["stop"]);
     }
 }

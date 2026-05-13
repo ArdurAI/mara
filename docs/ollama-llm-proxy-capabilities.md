@@ -12,12 +12,14 @@ This page summarizes **what the HTTP reverse proxy + Ollama normalizer** put int
 | **`gen_ai.usage.total_tokens`** | `usage.total_tokens` in the response, or **input + output** when both are known. |
 | **`attributes` (`mara.ollama.*`)** | Durations in nanoseconds are present in the upstream JSON (`total_duration`, `load_duration`, …). |
 | **`mara.session_id`** | One UUID per proxied HTTP exchange (correlation id for that call). |
+| **`resource.host_name` / `resource.process_pid`** | Set on every Ollama-normalized event (host + Mara's PID). Optional `resource.service_name` via `MARA_SERVICE_NAME`. |
 
 \*Request-side fields that are **not** in the client JSON (or are under different keys we do not parse yet) remain unset.
 
 ## Fields that often stay `null` (by design or not wired yet)
 
-- **`resource.*`** (service name, host, pid): not set by this adapter path; reserved for future global resource defaults or enrichment.
+- **`resource.service_name`**: unless `MARA_SERVICE_NAME` is set (config wiring planned).
+- **`resource.service_version`**: not wired yet.
 - **`trace_id` / `span_id`**: no W3C `traceparent` propagation from the proxy yet.
 - **`body`**, **`body_hashes`**: raw prompt/completion capture is off by default (privacy / volume).
 - **`mcp`, `tool`, `agent`, `conversation_id`**: unused for plain Ollama HTTP.
@@ -79,7 +81,17 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 Full copy: [`docs/captured/workspace-tests.txt`](captured/workspace-tests.txt)
 
+## CI smoke (mock upstream)
+
+Ubuntu CI runs `scripts/benchmarks/ollama_proxy_smoke.sh` (mock Ollama + `mara` + JSONL checks). No real Ollama daemon required.
+
+## Operator null-field guide
+
+See [`ollama-null-fields.md`](ollama-null-fields.md).
+
 ## Related code
 
 - Normalizer: `crates/mara-runtime-ollama/src/normalizer.rs`
 - Proxy capture: `crates/mara-adapter-llm-proxy/src/http_proxy.rs`, `exchange.rs`
+- Smoke harness: `scripts/benchmarks/ollama_proxy_smoke.sh`, `scripts/benchmarks/mock_ollama_upstream.py`, `scripts/benchmarks/check_ollama_proxy_events.py`
+- Long-run harness: `scripts/realworld/run-30min-site-research.sh`

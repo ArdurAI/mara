@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 bytes.workspace = true
+hostname = "0.4"
 mara-core.workspace = true
 mara-schema.workspace = true
 mara-adapter-llm-proxy.workspace = true
