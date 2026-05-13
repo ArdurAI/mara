@@ -406,4 +406,159 @@ mod tests {
         adapter.shutdown().await.expect("shutdown");
         let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
     }
+
+    async fn bind_ephemeral_otlp_addr() -> SocketAddr {
+        let cfg = OtlpHttpAdapterConfig::new(
+            "test_otlp",
+            "127.0.0.1:0".parse::<SocketAddr>().expect("addr"),
+        );
+        let listener = TcpListener::bind(cfg.http_listen).await.expect("bind");
+        listener.local_addr().expect("addr")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn get_method_returns_405() {
+        let actual_addr = bind_ephemeral_otlp_addr().await;
+        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
+            "test_otlp",
+            actual_addr,
+        ) };
+        let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
+        let (tx, _rx) = mpsc::channel::<Event>(8);
+        let handle = tokio::spawn({
+            let adapter = Arc::clone(&adapter);
+            async move { adapter.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("http://{actual_addr}/v1/logs"))
+            .send()
+            .await
+            .expect("sent");
+        assert_eq!(response.status().as_u16(), 405);
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unknown_path_returns_404() {
+        let actual_addr = bind_ephemeral_otlp_addr().await;
+        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
+            "test_otlp",
+            actual_addr,
+        ) };
+        let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
+        let (tx, _rx) = mpsc::channel::<Event>(8);
+        let handle = tokio::spawn({
+            let adapter = Arc::clone(&adapter);
+            async move { adapter.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{actual_addr}/v1/metrics"))
+            .header("content-type", "application/x-protobuf")
+            .body(vec![0u8; 8])
+            .send()
+            .await
+            .expect("sent");
+        assert_eq!(response.status().as_u16(), 404);
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn oversized_body_returns_413() {
+        let actual_addr = bind_ephemeral_otlp_addr().await;
+        let cfg = OtlpHttpAdapterConfig {
+            http_listen: actual_addr,
+            max_body_bytes: 32,
+            ..OtlpHttpAdapterConfig::new("test_otlp", actual_addr)
+        };
+        let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
+        let (tx, _rx) = mpsc::channel::<Event>(8);
+        let handle = tokio::spawn({
+            let adapter = Arc::clone(&adapter);
+            async move { adapter.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{actual_addr}/v1/logs"))
+            .header("content-type", "application/x-protobuf")
+            .body(vec![0u8; 64])
+            .send()
+            .await
+            .expect("sent");
+        assert_eq!(response.status().as_u16(), 413);
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unsupported_content_encoding_returns_415() {
+        let actual_addr = bind_ephemeral_otlp_addr().await;
+        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
+            "test_otlp",
+            actual_addr,
+        ) };
+        let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
+        let (tx, _rx) = mpsc::channel::<Event>(8);
+        let handle = tokio::spawn({
+            let adapter = Arc::clone(&adapter);
+            async move { adapter.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{actual_addr}/v1/logs"))
+            .header("content-type", "application/x-protobuf")
+            .header("content-encoding", "br")
+            .body(vec![1, 2, 3])
+            .send()
+            .await
+            .expect("sent");
+        assert_eq!(response.status().as_u16(), 415);
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn gzip_with_invalid_payload_returns_400() {
+        let actual_addr = bind_ephemeral_otlp_addr().await;
+        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
+            "test_otlp",
+            actual_addr,
+        ) };
+        let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
+        let (tx, _rx) = mpsc::channel::<Event>(8);
+        let handle = tokio::spawn({
+            let adapter = Arc::clone(&adapter);
+            async move { adapter.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{actual_addr}/v1/logs"))
+            .header("content-type", "application/x-protobuf")
+            .header("content-encoding", "gzip")
+            .body(b"not a gzip stream".to_vec())
+            .send()
+            .await
+            .expect("sent");
+        assert_eq!(response.status().as_u16(), 400);
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    }
 }
