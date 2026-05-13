@@ -420,6 +420,7 @@ fn source_runtime_from_str(s: &str) -> SourceRuntime {
         "kimi" => SourceRuntime::Kimi,
         "augment" => SourceRuntime::Augment,
         "gemini" => SourceRuntime::Gemini,
+        "ollama" => SourceRuntime::Ollama,
         _ => SourceRuntime::Other,
     }
 }

@@ -8,16 +8,21 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mara_adapter_jsonl::{JsonlAdapter, JsonlAdapterConfig};
+use mara_adapter_llm_proxy::{
+    LlmProxyAdapter, LlmProxyAdapterConfig, PassthroughNormalizer, UpstreamNormalizer,
+};
 use mara_adapter_otlp::{OtlpHttpAdapter, OtlpHttpAdapterConfig};
 use mara_core::config::{
     Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl,
-    OtlpAdapterConfig as CfgOtlp, OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig,
+    LlmProxyAdapterConfig as CfgLlmProxy, OtlpAdapterConfig as CfgOtlp,
+    OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig,
     StdoutSinkConfig as ConfigStdoutSinkConfig,
 };
 use mara_core::policy::{Policy, PolicyChain};
 use mara_core::traits::{Adapter, Sink};
 use mara_core::{Error, Pipeline};
 use mara_policy::builtin::{HeadSampler, RegexRedactor};
+use mara_runtime_ollama::OllamaNormalizer;
 use mara_sink_file::{FileSink, FileSinkConfig, StdoutSink};
 use mara_sink_otlp::{OtlpHttpSink, OtlpHttpSinkConfig};
 use tracing::{info, warn};
@@ -27,7 +32,8 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     let cfg = load_config(config_path)?;
 
     // Build adapters by name.
-    let adapters_by_name = build_adapters(&cfg.adapters.jsonl, &cfg.adapters.otlp);
+    let adapters_by_name =
+        build_adapters(&cfg.adapters.jsonl, &cfg.adapters.otlp, &cfg.adapters.llm_proxy);
 
     // Build sinks by name.
     let sinks_by_name = build_sinks(&cfg.sinks.file, &cfg.sinks.stdout, &cfg.sinks.otlp);
@@ -72,9 +78,24 @@ fn load_config(path: Option<&Path>) -> anyhow::Result<Config> {
     }
 }
 
+fn llm_proxy_normalizer(kind: &str) -> Arc<dyn UpstreamNormalizer> {
+    match kind {
+        "ollama" => Arc::new(OllamaNormalizer),
+        "passthrough" => Arc::new(PassthroughNormalizer),
+        _ => {
+            warn!(
+                normalizer = %kind,
+                "unknown llm_proxy normalizer; using passthrough"
+            );
+            Arc::new(PassthroughNormalizer)
+        }
+    }
+}
+
 fn build_adapters(
     jsonl_cfgs: &[CfgJsonl],
     otlp_cfgs: &[CfgOtlp],
+    llm_proxy_cfgs: &[CfgLlmProxy],
 ) -> std::collections::HashMap<String, Arc<dyn Adapter>> {
     let mut out: std::collections::HashMap<String, Arc<dyn Adapter>> =
         std::collections::HashMap::new();
@@ -94,6 +115,34 @@ fn build_adapters(
                 warn!(adapter = %c.name, listen = %c.http_listen, "invalid http_listen address; skipping: {err}");
             }
         }
+    }
+    for c in llm_proxy_cfgs {
+        let listen: std::net::SocketAddr = match c.http_listen.parse() {
+            Ok(a) => a,
+            Err(err) => {
+                warn!(
+                    adapter = %c.name,
+                    listen = %c.http_listen,
+                    "invalid llm_proxy http_listen; skipping: {err}"
+                );
+                continue;
+            }
+        };
+        let upstream: http::Uri = match std::str::FromStr::from_str(c.upstream.trim()) {
+            Ok(u) => u,
+            Err(err) => {
+                warn!(
+                    adapter = %c.name,
+                    upstream = %c.upstream,
+                    "invalid llm_proxy upstream; skipping: {err}"
+                );
+                continue;
+            }
+        };
+        let mut pcfg = LlmProxyAdapterConfig::new(c.name.clone(), listen, upstream);
+        pcfg.max_body_bytes = c.max_body_bytes;
+        let nz = llm_proxy_normalizer(c.normalizer.as_str());
+        out.insert(c.name.clone(), Arc::new(LlmProxyAdapter::new(pcfg, nz)));
     }
     out
 }

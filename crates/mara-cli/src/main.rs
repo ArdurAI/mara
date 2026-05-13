@@ -6,6 +6,7 @@
 //! remaining subcommands stay as stubs through M2/M3.
 
 mod run;
+mod setup;
 
 use std::path::PathBuf;
 
@@ -56,10 +57,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Apply a runtime preset (`claude-code`, `codex`, `cursor`, `kimi`, `augment`, `gemini`).
+    /// Apply a runtime preset (`ollama`, …).
     Setup {
         /// Preset name.
         preset: String,
+        /// Overwrite an existing configuration file.
+        #[arg(long)]
+        force: bool,
     },
     /// Inspect or manage the per-sink dead-letter queue.
     Dlq {
@@ -127,10 +131,7 @@ fn main() -> anyhow::Result<()> {
                 tracing::info!(watch, json, "mara diag — not yet implemented (M2 follow-up)");
                 Ok(())
             }
-            Command::Setup { preset } => {
-                tracing::info!(preset, "mara setup — not yet implemented (M3)");
-                Ok(())
-            }
+            Command::Setup { preset, force } => setup::setup(&preset, force),
             Command::Dlq { op } => {
                 tracing::info!(?op, "mara dlq — not yet implemented (M2 follow-up)");
                 Ok(())

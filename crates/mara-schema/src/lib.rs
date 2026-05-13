@@ -185,6 +185,8 @@ pub enum SourceRuntime {
     Augment,
     /// Google Gemini CLI.
     Gemini,
+    /// Ollama local inference server (via Mara HTTP proxy).
+    Ollama,
     /// Any other runtime captured generically.
     Other,
 }

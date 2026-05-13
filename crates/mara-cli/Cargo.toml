@@ -14,15 +14,19 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "fs", "sync", "time", "process", "io-util", "net"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+http.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
 mara-policy.workspace = true
 mara-adapter-jsonl.workspace = true
+mara-adapter-llm-proxy.workspace = true
 mara-adapter-otlp.workspace = true
+mara-runtime-ollama.workspace = true
 mara-sink-file.workspace = true
 mara-sink-otlp.workspace = true
 

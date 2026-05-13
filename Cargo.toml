@@ -90,8 +90,10 @@ opentelemetry-semantic-conventions = "0.27"
 
 # HTTP server (for the OTLP HTTP receiver)
 hyper = { version = "1", features = ["server", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio", "service"] }
+hyper-util = { version = "0.1", features = ["tokio", "service", "client-legacy", "http1"] }
+http = "1"
 http-body-util = "0.1"
+uuid = { version = "1", features = ["v7"] }
 prost = "0.13"
 flate2 = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }

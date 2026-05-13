@@ -133,7 +133,9 @@ impl Sink for OtlpHttpSink {
 
         while let Some(ev) = input.recv().await {
             batch.push(ev);
-            if batch.len() >= cap && let Err(e) = self.flush_batch(&mut batch).await {
+            if batch.len() >= cap
+                && let Err(e) = self.flush_batch(&mut batch).await
+            {
                 warn!(sink = %self.cfg.name, error = %e, "export failed");
             }
         }

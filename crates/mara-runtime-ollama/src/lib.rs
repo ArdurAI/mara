@@ -28,7 +28,7 @@
 //! - `prompt_eval_duration` ns -> `mara.ollama.prompt_eval_duration_ms`.
 //! - `eval_duration` ns -> `mara.ollama.eval_duration_ms`.
 //! - `eval_count / (eval_duration / 1e9)` -> `mara.ollama.tokens_per_sec`.
-//! - `mara.cost.usd = 0`, `mara.cost.source = "local_inference"`,
+//! - `mara.cost.usd = 0`, `mara.cost.source = "mara_estimated"`,
 //!   `mara.compute.is_local = true`.
 //!
 //! References:
@@ -38,10 +38,13 @@
 //! - <https://docs.ollama.com/faq> (env vars, reverse-proxy patterns)
 //! - <https://github.com/ollama/ollama/blob/main/LICENSE> (MIT)
 //!
-//! M0/M3 status: stub.  Preset implementation lands in MVP week 5
-//! per `plans/08-mvp/12-ollama-integration-design.md`.
+//! M0/M3 status: normalizer + `mara setup ollama` wired; see MVP week 5 plan.
 
 #![doc(html_root_url = "https://docs.rs/mara-runtime-ollama/0.1.0")]
+
+mod normalizer;
+
+pub use normalizer::OllamaNormalizer;
 
 /// Stable runtime identifier emitted as `mara.source.runtime`.
 pub const RUNTIME_ID: &str = "ollama";

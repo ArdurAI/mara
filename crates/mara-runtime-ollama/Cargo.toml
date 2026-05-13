@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+bytes.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
 mara-adapter-llm-proxy.workspace = true

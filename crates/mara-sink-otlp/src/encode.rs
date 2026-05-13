@@ -343,6 +343,7 @@ fn source_runtime_to_str(r: SourceRuntime) -> &'static str {
         SourceRuntime::Kimi => "kimi",
         SourceRuntime::Augment => "augment",
         SourceRuntime::Gemini => "gemini",
+        SourceRuntime::Ollama => "ollama",
         SourceRuntime::Other => "other",
         _ => "other",
     }

@@ -90,3 +90,30 @@ sinks = ["out1"]
     assert_eq!(cfg.pipelines.len(), 1);
     assert_eq!(cfg.pipelines[0].name, "p1");
 }
+
+#[test]
+fn config_loads_llm_proxy_pipeline() {
+    let toml = r#"
+schema_version = "1"
+
+[[adapters.llm_proxy]]
+name = "ollama_proxy"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+normalizer = "ollama"
+
+[[sinks.stdout]]
+name = "out1"
+
+[[pipelines]]
+name = "ollama"
+adapters = ["ollama_proxy"]
+sinks = ["out1"]
+"#;
+    let cfg = mara_core::Config::from_toml_str(toml, PathBuf::from("test")).expect("valid config");
+    assert_eq!(cfg.adapters.llm_proxy.len(), 1);
+    assert_eq!(cfg.adapters.llm_proxy[0].name, "ollama_proxy");
+    assert_eq!(cfg.adapters.llm_proxy[0].normalizer, "ollama");
+    let ollama_p = cfg.pipelines.iter().find(|p| p.name == "ollama").expect("ollama pipeline");
+    assert_eq!(ollama_p.adapters, vec!["ollama_proxy".to_owned()]);
+}

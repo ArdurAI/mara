@@ -66,6 +66,8 @@ pub struct Adapters {
     pub jsonl: Vec<JsonlAdapterConfig>,
     /// OTLP HTTP/protobuf receivers.
     pub otlp: Vec<OtlpAdapterConfig>,
+    /// HTTP reverse-proxy adapters for LLM upstreams (Ollama, OpenAI-compat).
+    pub llm_proxy: Vec<LlmProxyAdapterConfig>,
 }
 
 /// Configuration for an OTLP HTTP/protobuf receiver adapter.
@@ -93,6 +95,36 @@ fn default_otlp_http_listen() -> String {
 
 const fn default_otlp_max_body_bytes() -> usize {
     16 * 1024 * 1024
+}
+
+/// Configuration for the HTTP LLM reverse-proxy adapter.
+///
+/// Binds `http_listen`, forwards requests to `upstream` preserving
+/// path and query, and emits canonical events via the configured
+/// `normalizer` (`ollama` or `passthrough`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LlmProxyAdapterConfig {
+    /// Logical name (must be unique across all adapters).
+    pub name: String,
+    /// Local bind address (e.g. `127.0.0.1:11434`).
+    pub http_listen: String,
+    /// Upstream base URL (scheme + authority, no path), e.g.
+    /// `http://127.0.0.1:11434` for a local Ollama daemon.
+    pub upstream: String,
+    /// Normalizer profile: `ollama` (default) or `passthrough`.
+    #[serde(default = "default_llm_proxy_normalizer")]
+    pub normalizer: String,
+    /// Maximum request/response body capture per direction (default 10 MiB).
+    #[serde(default = "default_llm_proxy_max_body_bytes")]
+    pub max_body_bytes: usize,
+}
+
+fn default_llm_proxy_normalizer() -> String {
+    "ollama".into()
+}
+
+const fn default_llm_proxy_max_body_bytes() -> usize {
+    10 * 1024 * 1024
 }
 
 /// Configuration for a JSONL tail adapter.
@@ -283,6 +315,14 @@ impl Config {
                 });
             }
         }
+        for a in &self.adapters.llm_proxy {
+            if !adapter_names.insert(a.name.clone()) {
+                return Err(Error::Config {
+                    message: format!("duplicate adapter name: {}", a.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
 
         let mut sink_names = std::collections::HashSet::new();
         for s in &self.sinks.file {
@@ -425,5 +465,40 @@ name = "dup"
         let err = Config::from_toml_str(bad, "test").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("duplicate sink"), "got: {msg}");
+    }
+
+    #[test]
+    fn rejects_duplicate_llm_proxy_adapter_names() {
+        let bad = r#"
+schema_version = "1"
+[[adapters.llm_proxy]]
+name = "dup"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+[[adapters.llm_proxy]]
+name = "dup"
+http_listen = "127.0.0.1:11436"
+upstream = "http://127.0.0.1:11434"
+"#;
+        let err = Config::from_toml_str(bad, "test").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("duplicate adapter"), "got: {msg}");
+    }
+
+    #[test]
+    fn rejects_duplicate_adapter_name_across_otlp_and_llm_proxy() {
+        let bad = r#"
+schema_version = "1"
+[[adapters.otlp]]
+name = "same"
+http_listen = "127.0.0.1:4318"
+[[adapters.llm_proxy]]
+name = "same"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+"#;
+        let err = Config::from_toml_str(bad, "test").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("duplicate adapter"), "got: {msg}");
     }
 }
