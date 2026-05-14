@@ -9,6 +9,7 @@ git clone https://github.com/ArdurAI/mara.git
 cd mara
 cargo check --workspace
 cargo test --workspace
+bash scripts/captured/verify_open_verification.sh
 ```
 
 The Rust toolchain is pinned in `rust-toolchain.toml`. `rustup` will install it automatically.

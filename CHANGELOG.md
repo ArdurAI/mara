@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Docs**: Self-metrics latency histogram semantics (`mara_gen_ai_request_duration_ms_*`, PromQL, ring buffer vs cumulative buckets) at `docs/observability/mara-self-metrics-latency-histogram.md`.
 - **CI / M2-02**: `scripts/benchmarks/schema_completeness_gate.py` plus job `schema-completeness-gate` — at least three runtime fixtures must average ≥85% fill on seven required `gen_ai`/`resource` fields.
 - **M2 (milestone board)**: Agent fields on `MaraExtensions`, gateway correlation id (`x-mara-request-id` / `mara.request_id`), dual latency metrics (gateway vs engine), `CostConfidence` for honest cost, parallel sink fan-out, `/readyz` readiness, bounded `/metrics` rendering, fan-out and sink-send-error counters, optional `server.metrics_max_in_flight_connections`, `docs/semconv.lock` + CI drift script, quickstarts, Kubernetes probe fragment, Phoenix/Presidio/eval OTLP notes, single-upstream proxy doc, vector/GPU spike ADR, Grafana compare-by-pipeline panel, and `scripts/materialize_agent_run_summary.py`.
+- **Docs / CI**: Redacted Ollama+Mara live-run bundles in `docs/captured/open-verification/` (SHA256 manifest + `scripts/captured/verify_open_verification.sh`; CI job `open-verification-sha256`).
 
 ### Changed
 

@@ -97,6 +97,8 @@ Optional live check with **Ollama Cloud** models (local Ollama daemon + signed-i
 
 **Longer varied workload (≥15 min default):** `python3 scripts/realworld/ollama_cloud_varied_workload.py` — rotates generate/chat, OpenAI-compat chat, a real HTTP fetch + summarize, and sequential “planner → specialist” calls; writes `results.ndjson` and serves a tiny dashboard (`--dashboard-port`, default on). Use `--duration 900` (default) or shorter for dry runs.
 
+**Open verification (redacted JSONL + pinned SHA256):** see [`docs/captured/open-verification/README.md`](docs/captured/open-verification/README.md) and run `bash scripts/captured/verify_open_verification.sh` from the repo root.
+
 ## Try the CLI surface
 
 ```bash

@@ -54,6 +54,7 @@ For successful **`/api/generate`** and **`/api/chat`** calls with JSON bodies an
 - **CI-style smoke (mock upstream, no real Ollama):** `bash scripts/benchmarks/ollama_proxy_smoke.sh`
 - **Short Ollama Cloud smoke (local daemon + `*-cloud` model, real network):** `bash scripts/realworld/ollama_cloud_smoke.sh`
 - **Varied ≥15 min workload (generate/chat/OpenAI-compat, HTTP fetch + summarize, sequential “subagent” calls, optional local dashboard):** `python3 scripts/realworld/ollama_cloud_varied_workload.py` (see `--help`; default `--duration 900`)
+- **Redacted live bundles for inspection / SHA256 verify:** `docs/captured/open-verification/` — run `bash scripts/captured/verify_open_verification.sh`
 - **Long real-world run (needs Ollama + cloud or local model):** `bash scripts/realworld/run-30min-site-research.sh`
 
 ## Related docs

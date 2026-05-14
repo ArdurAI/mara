@@ -110,6 +110,14 @@ jobs:
           key: ${{ matrix.target }}
       - run: cargo build --workspace --release --target ${{ matrix.target }}
 
+  open-verification-sha256:
+    name: open verification bundle checksums
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/captured/verify_open_verification.sh
+
   docs:
     name: rustdoc
     runs-on: ubuntu-latest
