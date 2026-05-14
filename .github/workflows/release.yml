@@ -175,7 +175,7 @@ jobs:
           mkdir -p .docker
           tar -xzf dist/mara-*-x86_64-unknown-linux-musl.tar.gz -C .docker/
       - name: Build & push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .docker
           file: Dockerfile
