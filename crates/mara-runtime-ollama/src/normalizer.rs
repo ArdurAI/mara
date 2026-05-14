@@ -199,10 +199,8 @@ fn apply_agent_semantics(ev: &mut Event, request: &ProxiedRequest) {
     if ev.mara.tool_name.is_none()
         && let Some(arr) = v.get("messages").and_then(serde_json::Value::as_array)
         && let Some(last) = arr.last()
-        && let Some(tc) = last
-            .get("tool_calls")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|a| a.first())
+        && let Some(tc) =
+            last.get("tool_calls").and_then(serde_json::Value::as_array).and_then(|a| a.first())
         && let Some(name) = tc
             .pointer("/function/name")
             .and_then(serde_json::Value::as_str)
@@ -387,7 +385,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let body = br#"{"model":"llama3.2","eval_count":16,"prompt_eval_count":128,"total_duration":5000000}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -409,7 +407,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let resp = ProxiedResponse {
             status: 502,
@@ -439,7 +437,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let resp = ProxiedResponse::from_upstream(
             503,
@@ -470,7 +468,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(br#"{}"#), false);
         let evs = n.normalize("svc-test", &req, &resp);
@@ -488,7 +486,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let body = br#"{"model":"qwen2.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -516,7 +514,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let body = br#"{"model":"m","eval_count":1,"prompt_eval_count":2}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -595,7 +593,7 @@ mod tests {
                 br#"{"model":"llama3.2:latest","prompt":"hi","stream":false}"#,
             ),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let body = br#"{"model":"llama3.2:latest","response":"ok","done":true,"done_reason":"stop","prompt_eval_count":9,"eval_count":4}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -671,7 +669,7 @@ mod tests {
             ],
             body: Bytes::from_static(br#"{"model":"m","messages":[],"stream":false}"#),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -737,7 +735,7 @@ mod tests {
             headers: vec![("X-Conversation-Id".into(), "err-corr".into())],
             body: Bytes::from_static(br#"{"model":"m","stream":false}"#),
             body_truncated: false,
-        ..Default::default()
+            ..Default::default()
         };
         let resp = ProxiedResponse {
             status: 502,

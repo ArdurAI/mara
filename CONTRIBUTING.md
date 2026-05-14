@@ -12,6 +12,8 @@ cargo test --workspace
 bash scripts/captured/verify_open_verification.sh
 ```
 
+For the **full** checklist (format, clippy, schema gate, optional Hugo build), see [`INSTALL.md`](INSTALL.md).
+
 The Rust toolchain is pinned in `rust-toolchain.toml`. `rustup` will install it automatically.
 
 ## Workflow

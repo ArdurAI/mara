@@ -2,8 +2,8 @@
 
 use mara_core::Event;
 use mara_schema::{
-    AttrValue, CostConfidence, CostSource, EventBody, EventKind, GenAi, MaraExtensions, Mcp, Resource, Scope,
-    SourceRuntime, SpanId, ToolType, TraceId,
+    AttrValue, CostConfidence, CostSource, EventBody, EventKind, GenAi, MaraExtensions, Mcp,
+    Resource, Scope, SourceRuntime, SpanId, ToolType, TraceId,
 };
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValueInner;

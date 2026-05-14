@@ -39,13 +39,8 @@ pub(crate) fn apply_gen_ai_cost_estimate(
         return;
     }
 
-    let model = ev
-        .gen_ai
-        .request
-        .model
-        .as_deref()
-        .or(ev.gen_ai.response.model.as_deref())
-        .unwrap_or("");
+    let model =
+        ev.gen_ai.request.model.as_deref().or(ev.gen_ai.response.model.as_deref()).unwrap_or("");
 
     let (in_rate, out_rate) = resolve_per_million_rates(model, pricing);
     let cost = (in_t as f64 / 1_000_000.0) * in_rate + (out_t as f64 / 1_000_000.0) * out_rate;
@@ -89,10 +84,7 @@ mod tests {
         let mut ev = Event::now(EventKind::Completion, "t");
         ev.gen_ai.usage.input_tokens = Some(100);
         ev.gen_ai.usage.output_tokens = Some(50);
-        let p = GenAiPricingConfig {
-            estimate_enabled: false,
-            ..Default::default()
-        };
+        let p = GenAiPricingConfig { estimate_enabled: false, ..Default::default() };
         apply_gen_ai_cost_estimate(&mut ev, &p, false, false);
         assert_eq!(ev.mara.cost_usd, Some(0.0));
         assert_eq!(ev.mara.cost_confidence, Some(CostConfidence::Low));

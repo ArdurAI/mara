@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **[INSTALL.md](INSTALL.md)** at repository root: install-from-source steps and the full verification checklist aligned with CI (format, clippy, tests, schema gate, open-verification SHA256, optional Hugo).
+
 - **M0**: Workspace bootstrap, Apache 2.0 licensing, governance documents, planning encyclopedia under `plans/` (48 documents covering landscape, gaps, value proposition, implementation, evaluation, deployment blueprints, and per-runtime quickstarts).
 - **M1**: Canonical event schema aligned with OpenTelemetry `gen_ai.*` semconv in `mara-schema`. Adapter/Sink/Policy trait surfaces in `mara-core`. Seven Architecture Decision Records covering license, WASM policy host, WAL format, hot reload, async runtime, error model, and configuration format.
 - **M2**: Pipeline scheduler (adapters → policy chain → sinks fan-out) in `mara-core::pipeline`. TOML configuration loader with JSON-schema-style validation in `mara-core::config`. JSONL tail adapter with per-file offset checkpointing. File rotation sink and stdout sink. Built-in PII redaction policy (regex-based, covering email, US phone, SSN, AWS / GCP / GitHub / OpenAI / Anthropic / Slack tokens, JWT). Head sampling policy. CLI `mara run`, `mara validate`, `mara version`, `mara setup <preset>` (stub) wired against config files. End-to-end integration test: JSONL → PII redaction → file sink.
@@ -20,16 +22,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CI / M2-02**: `scripts/benchmarks/schema_completeness_gate.py` plus job `schema-completeness-gate` — at least three runtime fixtures must average ≥85% fill on seven required `gen_ai`/`resource` fields.
 - **M2 (milestone board)**: Agent fields on `MaraExtensions`, gateway correlation id (`x-mara-request-id` / `mara.request_id`), dual latency metrics (gateway vs engine), `CostConfidence` for honest cost, parallel sink fan-out, `/readyz` readiness, bounded `/metrics` rendering, fan-out and sink-send-error counters, optional `server.metrics_max_in_flight_connections`, `docs/semconv.lock` + CI drift script, quickstarts, Kubernetes probe fragment, Phoenix/Presidio/eval OTLP notes, single-upstream proxy doc, vector/GPU spike ADR, Grafana compare-by-pipeline panel, and `scripts/materialize_agent_run_summary.py`.
 - **Docs / CI**: Redacted Ollama+Mara live-run bundles in `docs/captured/open-verification/` (SHA256 manifest + `scripts/captured/verify_open_verification.sh`; CI job `open-verification-sha256`).
+- Per-pipeline **`audit_policy_drops`** (default `false`): when enabled, a minimal `System` audit event (no body; correlation + `mara.policy_audit.*` + policy decisions) is sent to sinks on every policy drop. See `docs/observability/mara-policy-drop-audit.md`.
 
 ### Changed
 
 - **Breaking (policy authors)**: `PolicyOutcome::Drop` now includes the dropped `Event`. Use `PolicyOutcome::drop(event, reason)` instead of `PolicyOutcome::drop(reason)`. `ChainOutcome::Drop` is now `{ reason, event }` instead of a bare `String`.
 - **`/readyz` readiness**: `Health::is_aggregate_ready` is true only for `healthy` or `degraded` (not `starting`, `stopping`, `stopped`, or `failed`). `Adapter::health` / `Sink::health` default to `Health::healthy()` so typical pipelines stay ready unless an implementation opts into finer-grained status. See `docs/observability/mara-readyz-semantics.md`.
 - **LLM proxy**: Response `x-mara-request-id` is always a header-safe value (ASCII fast path, stripped graphic ASCII fallback, or UUID) while events keep the logical correlation id from the client or minted UUID.
-
-### Added
-
-- Per-pipeline **`audit_policy_drops`** (default `false`): when enabled, a minimal `System` audit event (no body; correlation + `mara.policy_audit.*` + policy decisions) is sent to sinks on every policy drop. See `docs/observability/mara-policy-drop-audit.md`.
 
 ### Known gaps (pre-1.0)
 

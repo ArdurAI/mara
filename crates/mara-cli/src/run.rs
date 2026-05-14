@@ -27,12 +27,12 @@ use mara_core::config::{
 use mara_core::policy::{Policy, PolicyChain};
 use mara_core::traits::{Adapter, Sink};
 use mara_core::{Error, Pipeline, PipelineSelfMetrics, pipelines_aggregate_ready};
-use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use mara_policy::builtin::{DenyAll, HeadSampler, PrivacyFilter, RegexRedactor};
 use mara_runtime_ollama::OllamaNormalizer;
 use mara_sink_file::{FileSink, FileSinkConfig, StdoutSink};
 use mara_sink_otlp::{OtlpHttpSink, OtlpHttpSinkConfig};
+use tokio::net::TcpListener;
+use tokio::sync::Notify;
 use tracing::{info, warn};
 
 /// Run the agent against a configuration file.
@@ -67,7 +67,8 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     for p in &cfg.pipelines {
         let m = Arc::new(PipelineSelfMetrics::new(p.name.clone()));
         pipeline_metrics.push(m.clone());
-        let handle = compose_pipeline(p, &adapters_by_name, &sinks_by_name, &chains_by_name, m).await?;
+        let handle =
+            compose_pipeline(p, &adapters_by_name, &sinks_by_name, &chains_by_name, m).await?;
         handles_cell.lock().expect("handles lock").push(handle);
     }
 
@@ -227,7 +228,8 @@ fn build_adapters(
         pcfg.upstream_connect_timeout = Duration::from_secs(c.upstream_connect_timeout_secs);
         pcfg.upstream_headers_timeout = Duration::from_secs(c.upstream_headers_timeout_secs);
         pcfg.upstream_body_read_timeout = Duration::from_secs(c.upstream_body_read_timeout_secs);
-        pcfg.upstream_sse_frame_idle_timeout = Duration::from_secs(c.upstream_sse_frame_idle_timeout_secs);
+        pcfg.upstream_sse_frame_idle_timeout =
+            Duration::from_secs(c.upstream_sse_frame_idle_timeout_secs);
         pcfg.max_in_flight_connections = c.max_in_flight_connections;
         let nz = llm_proxy_normalizer(c.normalizer.as_str(), server);
         out.insert(c.name.clone(), Arc::new(LlmProxyAdapter::new(pcfg, nz)));

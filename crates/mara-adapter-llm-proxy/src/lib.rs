@@ -78,7 +78,11 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-proxy",
+            proxy_addr,
+            format!("http://{up_addr}").parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
@@ -159,7 +163,11 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-proxy",
+            proxy_addr,
+            format!("http://{up_addr}").parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
@@ -202,7 +210,11 @@ mod tests {
         let proxy_addr: SocketAddr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, "http://127.0.0.1:1".parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-proxy",
+            proxy_addr,
+            "http://127.0.0.1:1".parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
@@ -277,7 +289,11 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-timeout", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-timeout",
+            proxy_addr,
+            format!("http://{up_addr}").parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         cfg.upstream_headers_timeout = Duration::from_millis(150);
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
@@ -351,7 +367,11 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-proxy",
+            proxy_addr,
+            format!("http://{up_addr}").parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
@@ -429,7 +449,11 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        let mut cfg = LlmProxyAdapterConfig::new(
+            "test-proxy",
+            proxy_addr,
+            format!("http://{up_addr}").parse().expect("uri"),
+        );
         cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,

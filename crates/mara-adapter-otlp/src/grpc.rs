@@ -4,10 +4,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use mara_core::traits::EventSender;
-use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::{LogsService, LogsServiceServer};
-use opentelemetry_proto::tonic::collector::logs::v1::{ExportLogsServiceRequest, ExportLogsServiceResponse};
-use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::{TraceService, TraceServiceServer};
-use opentelemetry_proto::tonic::collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse};
+use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::{
+    LogsService, LogsServiceServer,
+};
+use opentelemetry_proto::tonic::collector::logs::v1::{
+    ExportLogsServiceRequest, ExportLogsServiceResponse,
+};
+use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::{
+    TraceService, TraceServiceServer,
+};
+use opentelemetry_proto::tonic::collector::trace::v1::{
+    ExportTraceServiceRequest, ExportTraceServiceResponse,
+};
 use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 

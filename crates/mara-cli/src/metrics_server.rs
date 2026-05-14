@@ -35,11 +35,9 @@ pub fn self_metrics_http_response(
     readiness: Option<bool>,
 ) -> (u16, &'static str, String) {
     match path {
-        "/metrics" => (
-            200,
-            "text/plain; version=0.0.4; charset=utf-8",
-            render_prometheus(pipelines),
-        ),
+        "/metrics" => {
+            (200, "text/plain; version=0.0.4; charset=utf-8", render_prometheus(pipelines))
+        }
         "/healthz" => (200, "text/plain; charset=utf-8", "ok".into()),
         "/readyz" => match readiness {
             Some(true) => (200, "text/plain; charset=utf-8", "ready".into()),

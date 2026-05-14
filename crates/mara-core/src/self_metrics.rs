@@ -9,9 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use mara_schema::{AttrValue, CostConfidence, Event, EventKind, SourceRuntime};
 
 /// Histogram bucket upper bounds in milliseconds (Prometheus cumulative `_bucket`).
-pub const LATENCY_MS_BUCKETS: &[f64] = &[
-    5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10_000.0,
-];
+pub const LATENCY_MS_BUCKETS: &[f64] =
+    &[5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10_000.0];
 
 const INF_BUCKET: usize = LATENCY_MS_BUCKETS.len();
 
@@ -284,10 +283,14 @@ impl PipelineSelfMetrics {
         let _ = writeln!(buf, "mara_gen_ai_cost_micro_usd_total{{pipeline=\"{p}\"}} {cm}");
 
         let cl = self.inner.cost_low_confidence_total.load(Ordering::Relaxed);
-        let _ = writeln!(buf, "mara_gen_ai_cost_low_confidence_completions_total{{pipeline=\"{p}\"}} {cl}");
+        let _ = writeln!(
+            buf,
+            "mara_gen_ai_cost_low_confidence_completions_total{{pipeline=\"{p}\"}} {cl}"
+        );
 
         let se = self.inner.sink_send_errors_total.load(Ordering::Relaxed);
-        let _ = writeln!(buf, "mara_pipeline_sink_channel_send_errors_total{{pipeline=\"{p}\"}} {se}");
+        let _ =
+            writeln!(buf, "mara_pipeline_sink_channel_send_errors_total{{pipeline=\"{p}\"}} {se}");
 
         let eng = "mara_gen_ai_request_duration_ms";
         let gw = "mara_gen_ai_gateway_duration_ms";
@@ -301,7 +304,14 @@ impl PipelineSelfMetrics {
         let fc = self.inner.fanout_count.load(Ordering::Relaxed);
 
         render_histogram_block(buf, &self.pipeline, eng, &self.inner.latency_bucket_counts, lm, lc);
-        render_histogram_block(buf, &self.pipeline, gw, &self.inner.gateway_latency_bucket_counts, gm, gc);
+        render_histogram_block(
+            buf,
+            &self.pipeline,
+            gw,
+            &self.inner.gateway_latency_bucket_counts,
+            gm,
+            gc,
+        );
         render_histogram_block(buf, &self.pipeline, fo, &self.inner.fanout_bucket_counts, fm, fc);
     }
 }
@@ -325,9 +335,15 @@ pub fn render_prometheus(pipelines: &[std::sync::Arc<PipelineSelfMetrics>]) -> S
         "# HELP mara_gen_ai_requests_failed_total Proxy or upstream HTTP errors attributed to gen_ai traffic"
     );
     let _ = writeln!(buf, "# TYPE mara_gen_ai_requests_failed_total counter");
-    let _ = writeln!(buf, "# HELP mara_gen_ai_input_tokens_total Sum of gen_ai.usage.input_tokens on completions");
+    let _ = writeln!(
+        buf,
+        "# HELP mara_gen_ai_input_tokens_total Sum of gen_ai.usage.input_tokens on completions"
+    );
     let _ = writeln!(buf, "# TYPE mara_gen_ai_input_tokens_total counter");
-    let _ = writeln!(buf, "# HELP mara_gen_ai_output_tokens_total Sum of gen_ai.usage.output_tokens on completions");
+    let _ = writeln!(
+        buf,
+        "# HELP mara_gen_ai_output_tokens_total Sum of gen_ai.usage.output_tokens on completions"
+    );
     let _ = writeln!(buf, "# TYPE mara_gen_ai_output_tokens_total counter");
     let _ = writeln!(
         buf,
@@ -439,8 +455,12 @@ mod tests {
         assert!(s.contains("mara_gen_ai_input_tokens_total{pipeline=\"p-test\"} 110"));
         assert!(s.contains("mara_gen_ai_output_tokens_total{pipeline=\"p-test\"} 55"));
         assert!(s.contains("mara_gen_ai_cost_micro_usd_total{pipeline=\"p-test\"} 1000"));
-        assert!(s.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"p-test\",le=\"5\"} 1"));
-        assert!(s.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"p-test\",le=\"25\"} 2"));
+        assert!(
+            s.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"p-test\",le=\"5\"} 1")
+        );
+        assert!(
+            s.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"p-test\",le=\"25\"} 2")
+        );
     }
 
     #[test]
@@ -477,7 +497,9 @@ mod tests {
         assert!(body.contains("mara_gen_ai_requests_completed_total{pipeline=\"ollama\"} 1"));
         assert!(body.contains("mara_gen_ai_input_tokens_total{pipeline=\"ollama\"} 2"));
         assert!(body.contains("mara_gen_ai_output_tokens_total{pipeline=\"ollama\"} 3"));
-        assert!(body.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"ollama\",le=\"100\"}"));
+        assert!(
+            body.contains("mara_gen_ai_request_duration_ms_bucket{pipeline=\"ollama\",le=\"100\"}")
+        );
         assert!(body.contains("mara_gen_ai_request_duration_ms_p95{pipeline=\"ollama\"}"));
     }
 
@@ -506,7 +528,10 @@ mod tests {
         let m = Arc::new(PipelineSelfMetrics::new("fk"));
         let mut ev = Event::now(EventKind::Error, "mara-adapter-llm-proxy");
         ev.resource.source_runtime = Some(SourceRuntime::Ollama);
-        ev.attributes.insert("mara.proxy.failure_kind".into(), AttrValue::String("upstream_transport".into()));
+        ev.attributes.insert(
+            "mara.proxy.failure_kind".into(),
+            AttrValue::String("upstream_transport".into()),
+        );
         m.record_delivered(&ev);
         let s = render_prometheus(&[m]);
         assert!(s.contains("mara_gen_ai_requests_failed_total{pipeline=\"fk\"} 1"));

@@ -34,7 +34,7 @@ pub use config::Config;
 pub use error::{Error, Result};
 pub use health::{Health, HealthStatus};
 pub use mara_schema::Event;
-pub use pipeline::{pipelines_aggregate_ready, Pipeline, PipelineHandle};
+pub use pipeline::{Pipeline, PipelineHandle, pipelines_aggregate_ready};
 pub use policy::{Policy, PolicyChain, PolicyContext, PolicyOutcome};
 pub use self_metrics::{PipelineSelfMetrics, render_prometheus};
 pub use traits::{Adapter, EventReceiver, EventSender, Sink};

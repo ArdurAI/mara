@@ -6,7 +6,7 @@ Think Fluent Bit for AI workloads: a small, fast, edge-deployable binary that co
 
 ## Status
 
-Pre-1.0. Active development on the v1 milestone plan ([MOS plan](plans/mara_mos_plan_d0da16c1.plan.md)).
+Pre-1.0. **`main` is expected to stay green** with the checks in [INSTALL.md](INSTALL.md) (format, clippy, tests, schema gate, open-verification SHA256). Feature work may land on `dev` first; releases and default clone experience track **`main`**. Roadmap detail: [MOS plan](plans/mara_mos_plan_d0da16c1.plan.md).
 
 ## What Mara captures
 
@@ -18,7 +18,7 @@ Tier C (analytics REST best-effort): **Augment Code**.
 
 Proxy tier (HTTP request/response capture for runtimes without native telemetry): **Ollama** (local LLM runtime).
 
-**MVP target (in active development on `cursor/mara-mvp` branch):** Claude Code (Tier A) and Ollama (Proxy) end-to-end. The other five runtimes are scaffolded and activate in MVP+1. See [the MVP plan](plans/08-mvp/01-scope-and-decision-criteria.md).
+**First-class paths on `main` today:** OTLP HTTP/protobuf (+ optional gRPC when configured), LLM HTTP proxy in front of Ollama/OpenAI-compatible servers, JSONL tail, file/stdout sinks, policy chain (redact, privacy, sample, deny), self-metrics (`/metrics`, `/healthz`, `/readyz`). Tier B/C adapters (hooks HTTP ingest, analytics polling) are configurable from TOML; see [docs/compat-matrix.md](docs/compat-matrix.md) and [the MVP plan](plans/08-mvp/01-scope-and-decision-criteria.md) for depth per runtime.
 
 See the [compatibility matrix specification](plans/05-evaluation/02-compatibility-matrix-spec.md) for details.
 
@@ -80,6 +80,7 @@ OpenTelemetry Protocol (gRPC + HTTP), Grafana Loki, Splunk HEC, Elasticsearch / 
 │   └── 07-quickstarts/             # per-runtime onboarding
 ├── docs/                           # engineering reference (ADRs, runbooks)
 ├── website/                        # Hugo static site (project homepage)
+├── INSTALL.md                      # install + verification checklist for main
 └── .github/                        # CI and governance config
 ```
 
@@ -93,13 +94,16 @@ cd website && hugo server -D
 
 See [`website/README.md`](website/README.md) for theme notes, production build, and CI. Set `baseURL` in `website/hugo.toml` before deploying.
 
-## Build
+## Install and verify
+
+See **[INSTALL.md](INSTALL.md)** for a full install-from-source walkthrough and the exact command list used to validate `main` (including schema completeness and open-verification bundles).
+
+Quick check:
 
 ```bash
-cargo check --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 The Rust toolchain is pinned via `rust-toolchain.toml`. `rustup` installs the right version on first use.
@@ -117,7 +121,7 @@ cargo run --bin mara -- --help
 cargo run --bin mara -- version
 ```
 
-In M0 the CLI is a scaffolded skeleton; real behaviors arrive in M2+ per the [phased milestones](plans/04-implementation/07-phased-milestones.md).
+The CLI implements **`mara run`**, **`mara validate`**, **`mara version`**, and **`mara setup`** (presets); behavior is driven by `mara.toml`. See [phased milestones](plans/04-implementation/07-phased-milestones.md) for history and upcoming work.
 
 ## Contributing
 

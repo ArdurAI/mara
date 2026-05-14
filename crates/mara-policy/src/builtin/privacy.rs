@@ -91,7 +91,11 @@ impl Policy for PrivacyFilter {
             }
             PrivacyCaptureMode::BodyOptIn => {
                 if event.mara.policy_capture_optin {
-                    ctx.record_decision(&mut event, PolicyDecisionKind::Allowed, Some("privacy:body_opt_in:kept".into()));
+                    ctx.record_decision(
+                        &mut event,
+                        PolicyDecisionKind::Allowed,
+                        Some("privacy:body_opt_in:kept".into()),
+                    );
                     return Ok(PolicyOutcome::pass(event));
                 }
                 clear_body(&mut event);
@@ -100,11 +104,7 @@ impl Policy for PrivacyFilter {
             }
         };
 
-        ctx.record_decision(
-            &mut event,
-            PolicyDecisionKind::Transformed,
-            Some(reason.to_owned()),
-        );
+        ctx.record_decision(&mut event, PolicyDecisionKind::Transformed, Some(reason.to_owned()));
         Ok(PolicyOutcome::pass(event))
     }
 }
@@ -119,17 +119,11 @@ mod tests {
         let mut ev = Event::now(EventKind::Prompt, "t");
         ev.body = Some(EventBody {
             prompt: Some(PromptBody {
-                messages: vec![Message {
-                    role: "user".into(),
-                    content: "secret-prompt".into(),
-                }],
+                messages: vec![Message { role: "user".into(), content: "secret-prompt".into() }],
             }),
             completion: Some(CompletionBody {
                 choices: vec![CompletionChoice {
-                    message: Message {
-                        role: "assistant".into(),
-                        content: "secret-out".into(),
-                    },
+                    message: Message { role: "assistant".into(), content: "secret-out".into() },
                     finish_reason: None,
                 }],
             }),

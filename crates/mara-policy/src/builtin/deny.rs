@@ -33,11 +33,7 @@ impl Policy for DenyAll {
     }
 
     async fn apply(&self, ctx: &PolicyContext, mut event: Event) -> Result<PolicyOutcome> {
-        ctx.record_decision(
-            &mut event,
-            PolicyDecisionKind::Denied,
-            Some(self.reason.clone()),
-        );
+        ctx.record_decision(&mut event, PolicyDecisionKind::Denied, Some(self.reason.clone()));
         Ok(PolicyOutcome::drop(event, self.reason.clone()))
     }
 }

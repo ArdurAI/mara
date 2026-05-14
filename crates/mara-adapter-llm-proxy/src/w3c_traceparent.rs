@@ -116,11 +116,15 @@ mod tests {
 
     #[test]
     fn rejects_flags_not_two_chars() {
-        assert!(parse_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-1").is_none());
+        assert!(
+            parse_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-1").is_none()
+        );
     }
 
     #[test]
     fn rejects_invalid_hex_in_trace_id() {
-        assert!(parse_traceparent("00-0af7651916cd43dd8448eb211c80319g-b7ad6b7169203331-01").is_none());
+        assert!(
+            parse_traceparent("00-0af7651916cd43dd8448eb211c80319g-b7ad6b7169203331-01").is_none()
+        );
     }
 }

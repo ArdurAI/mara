@@ -132,8 +132,14 @@ impl GenAiPricingConfig {
             }
             Ok(())
         };
-        check_rate(self.default_input_per_million_usd, "server.gen_ai_pricing.default_input_per_million_usd")?;
-        check_rate(self.default_output_per_million_usd, "server.gen_ai_pricing.default_output_per_million_usd")?;
+        check_rate(
+            self.default_input_per_million_usd,
+            "server.gen_ai_pricing.default_input_per_million_usd",
+        )?;
+        check_rate(
+            self.default_output_per_million_usd,
+            "server.gen_ai_pricing.default_output_per_million_usd",
+        )?;
         for (i, row) in self.models.iter().enumerate() {
             if row.prefix.trim().is_empty() {
                 return Err(Error::Config {
@@ -141,8 +147,14 @@ impl GenAiPricingConfig {
                     path: p.clone(),
                 });
             }
-            check_rate(row.input_per_million_usd, &format!("server.gen_ai_pricing.models[{i}].input_per_million_usd"))?;
-            check_rate(row.output_per_million_usd, &format!("server.gen_ai_pricing.models[{i}].output_per_million_usd"))?;
+            check_rate(
+                row.input_per_million_usd,
+                &format!("server.gen_ai_pricing.models[{i}].input_per_million_usd"),
+            )?;
+            check_rate(
+                row.output_per_million_usd,
+                &format!("server.gen_ai_pricing.models[{i}].output_per_million_usd"),
+            )?;
         }
         Ok(())
     }
@@ -932,15 +944,11 @@ rate = 1.0
         let stages = cfg.policies.get("zdr").expect("chain");
         assert!(matches!(
             stages[0],
-            PolicyStageConfig::Privacy {
-                mode: PrivacyCaptureMode::HashedBodies
-            }
+            PolicyStageConfig::Privacy { mode: PrivacyCaptureMode::HashedBodies }
         ));
         assert!(matches!(
             stages[1],
-            PolicyStageConfig::Privacy {
-                mode: PrivacyCaptureMode::MetadataOnly
-            }
+            PolicyStageConfig::Privacy { mode: PrivacyCaptureMode::MetadataOnly }
         ));
         assert!(matches!(stages[2], PolicyStageConfig::Sample { rate } if rate == 1.0));
     }
@@ -983,7 +991,9 @@ output_per_million_usd = 0.2
 "#;
         let cfg = Config::from_toml_str(raw, "test").expect("parse");
         assert!(cfg.server.gen_ai_pricing.estimate_enabled);
-        assert!((cfg.server.gen_ai_pricing.default_input_per_million_usd - 0.5).abs() < f64::EPSILON);
+        assert!(
+            (cfg.server.gen_ai_pricing.default_input_per_million_usd - 0.5).abs() < f64::EPSILON
+        );
         assert_eq!(cfg.server.gen_ai_pricing.models.len(), 1);
         assert_eq!(cfg.server.gen_ai_pricing.models[0].prefix, "llama");
     }

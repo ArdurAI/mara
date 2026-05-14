@@ -67,9 +67,9 @@ impl Adapter for HooksHttpAdapter {
     }
 
     async fn start(&self, out: EventSender) -> Result<()> {
-        let listener = TcpListener::bind(self.cfg.http_listen).await.map_err(|e| {
-            Error::Io { path: Some(self.cfg.http_listen.to_string()), source: e }
-        })?;
+        let listener = TcpListener::bind(self.cfg.http_listen)
+            .await
+            .map_err(|e| Error::Io { path: Some(self.cfg.http_listen.to_string()), source: e })?;
         info!(adapter = %self.cfg.name, addr = %self.cfg.http_listen, "hooks http listening");
         let stop = self.stop.clone();
         let max = self.cfg.max_body_bytes;
@@ -173,7 +173,8 @@ fn parse_events(bytes: &[u8]) -> std::result::Result<Vec<Event>, &'static str> {
     if let Some(arr) = v.get("events").and_then(Value::as_array) {
         let mut out = Vec::with_capacity(arr.len());
         for item in arr {
-            let ev: Event = serde_json::from_value(item.clone()).map_err(|_| "invalid event in events[]")?;
+            let ev: Event =
+                serde_json::from_value(item.clone()).map_err(|_| "invalid event in events[]")?;
             out.push(ev);
         }
         if out.is_empty() {

@@ -215,14 +215,12 @@ fn build_policy_drop_audit_event(dropped: Event, chain_reason: &str, pipeline_na
         reason_short = "policy:drop".into();
     }
     audit.attributes.insert("mara.policy_audit.kind".into(), AttrValue::String("drop".into()));
-    audit.attributes.insert(
-        "mara.policy_audit.pipeline".into(),
-        AttrValue::String(pipeline_name.to_owned()),
-    );
-    audit.attributes.insert(
-        "mara.policy_audit.chain_reason".into(),
-        AttrValue::String(reason_short),
-    );
+    audit
+        .attributes
+        .insert("mara.policy_audit.pipeline".into(), AttrValue::String(pipeline_name.to_owned()));
+    audit
+        .attributes
+        .insert("mara.policy_audit.chain_reason".into(), AttrValue::String(reason_short));
     audit.attributes.insert(
         "mara.policy_audit.base_event_kind".into(),
         AttrValue::String(event_kind_slug(dropped.event_kind).into()),
@@ -230,7 +228,11 @@ fn build_policy_drop_audit_event(dropped: Event, chain_reason: &str, pipeline_na
     audit
 }
 
-fn wal_append_delivered(spool_dir: &std::path::Path, pipeline_name: &str, ev: &Event) -> std::io::Result<()> {
+fn wal_append_delivered(
+    spool_dir: &std::path::Path,
+    pipeline_name: &str,
+    ev: &Event,
+) -> std::io::Result<()> {
     std::fs::create_dir_all(spool_dir)?;
     let safe: String = pipeline_name
         .chars()
@@ -424,7 +426,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
-    use crate::policy::{Policy, PolicyContext, PolicyOutcome, PolicyChain};
+    use crate::policy::{Policy, PolicyChain, PolicyContext, PolicyOutcome};
     use crate::self_metrics::{PipelineSelfMetrics, render_prometheus};
     use crate::traits::{Adapter, Sink};
 

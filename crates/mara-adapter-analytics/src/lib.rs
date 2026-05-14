@@ -15,8 +15,8 @@ use mara_core::error::{Error, Result};
 use mara_core::health::Health;
 use mara_core::traits::{Adapter, EventSender};
 use mara_schema::Event;
-use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use reqwest::Url;
+use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use tokio::fs;
 use tokio::sync::Notify;
 use tokio::time::sleep;
@@ -38,7 +38,12 @@ pub struct AnalyticsHttpAdapterConfig {
 impl AnalyticsHttpAdapterConfig {
     /// Construct from parsed URL and poll settings.
     #[must_use]
-    pub fn new(name: impl Into<String>, url: Url, poll_interval_secs: u64, checkpoint_path: PathBuf) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        url: Url,
+        poll_interval_secs: u64,
+        checkpoint_path: PathBuf,
+    ) -> Self {
         Self { name: name.into(), url, poll_interval_secs, checkpoint_path }
     }
 }
@@ -64,12 +69,9 @@ impl Adapter for AnalyticsHttpAdapter {
     }
 
     async fn start(&self, out: EventSender) -> Result<()> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|e| Error::Config {
-                message: format!("analytics http client: {e}"),
-                path: None,
+        let client =
+            reqwest::Client::builder().timeout(Duration::from_secs(120)).build().map_err(|e| {
+                Error::Config { message: format!("analytics http client: {e}"), path: None }
             })?;
         info!(adapter = %self.cfg.name, url = %self.cfg.url, "analytics poller starting");
         let stop = self.stop.clone();
@@ -108,9 +110,13 @@ impl Adapter for AnalyticsHttpAdapter {
                         backoff = (backoff * 2).min(Duration::from_secs(300));
                         continue;
                     }
-                    let etag = resp.headers().get(ETAG).and_then(|v| v.to_str().ok()).map(str::to_owned);
-                    let last_modified =
-                        resp.headers().get(LAST_MODIFIED).and_then(|v| v.to_str().ok()).map(str::to_owned);
+                    let etag =
+                        resp.headers().get(ETAG).and_then(|v| v.to_str().ok()).map(str::to_owned);
+                    let last_modified = resp
+                        .headers()
+                        .get(LAST_MODIFIED)
+                        .and_then(|v| v.to_str().ok())
+                        .map(str::to_owned);
                     let body = match resp.bytes().await {
                         Ok(b) => b,
                         Err(e) => {
@@ -131,7 +137,8 @@ impl Adapter for AnalyticsHttpAdapter {
                                 }
                             }
                             if let Err(e) =
-                                write_checkpoint(&self.cfg.checkpoint_path, etag, last_modified).await
+                                write_checkpoint(&self.cfg.checkpoint_path, etag, last_modified)
+                                    .await
                             {
                                 warn!(adapter = %self.cfg.name, "checkpoint write: {e}");
                             }
@@ -193,10 +200,9 @@ async fn write_checkpoint(
     last_modified: Option<String>,
 ) -> Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).await.map_err(|e| Error::Io {
-            path: Some(parent.display().to_string()),
-            source: e,
-        })?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| Error::Io { path: Some(parent.display().to_string()), source: e })?;
     }
     let mut s = String::new();
     if let Some(e) = etag {
@@ -209,10 +215,9 @@ async fn write_checkpoint(
         s.push_str(&l);
         s.push('\n');
     }
-    fs::write(path, s).await.map_err(|e| Error::Io {
-        path: Some(path.display().to_string()),
-        source: e,
-    })
+    fs::write(path, s)
+        .await
+        .map_err(|e| Error::Io { path: Some(path.display().to_string()), source: e })
 }
 
 fn parse_events_body(body: &[u8]) -> std::result::Result<Vec<Event>, String> {

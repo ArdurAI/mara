@@ -448,10 +448,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn get_method_returns_405() {
         let actual_addr = bind_ephemeral_otlp_addr().await;
-        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
-            "test_otlp",
-            actual_addr,
-        ) };
+        let cfg = OtlpHttpAdapterConfig {
+            http_listen: actual_addr,
+            ..OtlpHttpAdapterConfig::new("test_otlp", actual_addr)
+        };
         let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
         let (tx, _rx) = mpsc::channel::<Event>(8);
         let handle = tokio::spawn({
@@ -461,11 +461,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let client = reqwest::Client::new();
-        let response = client
-            .get(format!("http://{actual_addr}/v1/logs"))
-            .send()
-            .await
-            .expect("sent");
+        let response =
+            client.get(format!("http://{actual_addr}/v1/logs")).send().await.expect("sent");
         assert_eq!(response.status().as_u16(), 405);
 
         adapter.shutdown().await.expect("shutdown");
@@ -475,10 +472,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unknown_path_returns_404() {
         let actual_addr = bind_ephemeral_otlp_addr().await;
-        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
-            "test_otlp",
-            actual_addr,
-        ) };
+        let cfg = OtlpHttpAdapterConfig {
+            http_listen: actual_addr,
+            ..OtlpHttpAdapterConfig::new("test_otlp", actual_addr)
+        };
         let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
         let (tx, _rx) = mpsc::channel::<Event>(8);
         let handle = tokio::spawn({
@@ -534,10 +531,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unsupported_content_encoding_returns_415() {
         let actual_addr = bind_ephemeral_otlp_addr().await;
-        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
-            "test_otlp",
-            actual_addr,
-        ) };
+        let cfg = OtlpHttpAdapterConfig {
+            http_listen: actual_addr,
+            ..OtlpHttpAdapterConfig::new("test_otlp", actual_addr)
+        };
         let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
         let (tx, _rx) = mpsc::channel::<Event>(8);
         let handle = tokio::spawn({
@@ -564,10 +561,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gzip_with_invalid_payload_returns_400() {
         let actual_addr = bind_ephemeral_otlp_addr().await;
-        let cfg = OtlpHttpAdapterConfig { http_listen: actual_addr, ..OtlpHttpAdapterConfig::new(
-            "test_otlp",
-            actual_addr,
-        ) };
+        let cfg = OtlpHttpAdapterConfig {
+            http_listen: actual_addr,
+            ..OtlpHttpAdapterConfig::new("test_otlp", actual_addr)
+        };
         let adapter = Arc::new(OtlpHttpAdapter::new(cfg));
         let (tx, _rx) = mpsc::channel::<Event>(8);
         let handle = tokio::spawn({

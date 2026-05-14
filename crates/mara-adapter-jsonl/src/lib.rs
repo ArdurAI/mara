@@ -152,10 +152,8 @@ async fn tail_one(
 
     #[cfg(all(feature = "notify", unix))]
     let fs_wake: Option<std::sync::Arc<Notify>> = if notify_hot_tail {
-        let parent = path
-            .parent()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
+        let parent =
+            path.parent().map(std::path::Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
         let n = std::sync::Arc::new(Notify::new());
         spawn_fs_wake_thread(parent, n.clone());
         Some(n)

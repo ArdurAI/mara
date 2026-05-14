@@ -120,7 +120,10 @@ fn correlation_request_id(headers: &HeaderMap) -> String {
 /// correlation string on events may still be the original `rid` from [`correlation_request_id`].
 fn response_request_id_header_value(rid: &str) -> HeaderValue {
     let t = rid.trim();
-    if !t.is_empty() && t.is_ascii() && let Ok(v) = HeaderValue::from_str(t) {
+    if !t.is_empty()
+        && t.is_ascii()
+        && let Ok(v) = HeaderValue::from_str(t)
+    {
         return v;
     }
     const MAX: usize = 128;
@@ -129,7 +132,9 @@ fn response_request_id_header_value(rid: &str) -> HeaderValue {
         .filter(|c| c.is_ascii_graphic() && !matches!(*c, '"' | '\\'))
         .take(MAX)
         .collect();
-    if !ascii.is_empty() && let Ok(v) = HeaderValue::from_str(&ascii) {
+    if !ascii.is_empty()
+        && let Ok(v) = HeaderValue::from_str(&ascii)
+    {
         return v;
     }
     HeaderValue::from_str(&Uuid::now_v7().to_string()).expect("uuid v7 is header-safe ascii")
@@ -480,43 +485,44 @@ async fn process_one(
         }
     };
 
-    let up_resp = match tokio::time::timeout(cfg.upstream_headers_timeout, client.request(up_req)).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => {
-            warn!("upstream request failed: {e}");
-            emit_proxy_failure(
-                &session_id,
-                &parts,
-                req_body,
-                req_trunc,
-                ProxyFailureKind::UpstreamTransport,
-                &e.to_string(),
-                None,
-                &normalizer,
-                &out,
-                &adapter_name,
-            )
-            .await;
-            return Ok(bad_gateway());
-        }
-        Err(_) => {
-            warn!("upstream response headers timed out");
-            emit_proxy_failure(
-                &session_id,
-                &parts,
-                req_body,
-                req_trunc,
-                ProxyFailureKind::UpstreamTimeout,
-                "upstream response headers timed out",
-                None,
-                &normalizer,
-                &out,
-                &adapter_name,
-            )
-            .await;
-            return Ok(bad_gateway());
-        }
-    };
+    let up_resp =
+        match tokio::time::timeout(cfg.upstream_headers_timeout, client.request(up_req)).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                warn!("upstream request failed: {e}");
+                emit_proxy_failure(
+                    &session_id,
+                    &parts,
+                    req_body,
+                    req_trunc,
+                    ProxyFailureKind::UpstreamTransport,
+                    &e.to_string(),
+                    None,
+                    &normalizer,
+                    &out,
+                    &adapter_name,
+                )
+                .await;
+                return Ok(bad_gateway());
+            }
+            Err(_) => {
+                warn!("upstream response headers timed out");
+                emit_proxy_failure(
+                    &session_id,
+                    &parts,
+                    req_body,
+                    req_trunc,
+                    ProxyFailureKind::UpstreamTimeout,
+                    "upstream response headers timed out",
+                    None,
+                    &normalizer,
+                    &out,
+                    &adapter_name,
+                )
+                .await;
+                return Ok(bad_gateway());
+            }
+        };
 
     let (up_parts, up_body_in) = up_resp.into_parts();
     let up_status = up_parts.status.as_u16();
