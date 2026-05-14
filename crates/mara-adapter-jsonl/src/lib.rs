@@ -7,8 +7,8 @@
 //! resumes correctly across restarts.
 //!
 //! M2 ships the synchronous reader pattern (open file, read from
-//! offset, sleep, repeat).  inotify/FSEvents-driven hot tailing
-//! lands in M2 follow-up.
+//! offset, sleep, repeat). Optional **hot tail** via `notify` wakes
+//! the loop sooner on Unix/macOS when `notify_hot_tail` is enabled.
 
 #![doc(html_root_url = "https://docs.rs/mara-adapter-jsonl/0.1.0")]
 
@@ -38,12 +38,20 @@ pub struct JsonlAdapterConfig {
     pub checkpoint_dir: PathBuf,
     /// Sleep interval between read attempts when EOF is reached.
     pub poll_interval: Duration,
+    /// When `true` (Unix + `notify` feature), wake sooner on filesystem events.
+    pub notify_hot_tail: bool,
 }
 
 impl JsonlAdapterConfig {
     /// Construct a config with sensible defaults.
     pub fn new(name: impl Into<String>, paths: Vec<PathBuf>, checkpoint_dir: PathBuf) -> Self {
-        Self { name: name.into(), paths, checkpoint_dir, poll_interval: Duration::from_millis(200) }
+        Self {
+            name: name.into(),
+            paths,
+            checkpoint_dir,
+            poll_interval: Duration::from_millis(200),
+            notify_hot_tail: false,
+        }
     }
 }
 
@@ -80,9 +88,10 @@ impl Adapter for JsonlAdapter {
             let ckpt_dir = self.cfg.checkpoint_dir.clone();
             let poll = self.cfg.poll_interval;
             let adapter_name = self.cfg.name.clone();
+            let notify_hot_tail = self.cfg.notify_hot_tail;
             let out = out.clone();
             tasks.push(tokio::spawn(async move {
-                tail_one(adapter_name, path, ckpt_dir, poll, out).await
+                tail_one(adapter_name, path, ckpt_dir, poll, notify_hot_tail, out).await
             }));
         }
 
@@ -101,16 +110,60 @@ impl Adapter for JsonlAdapter {
     }
 }
 
+#[cfg(all(feature = "notify", unix))]
+fn spawn_fs_wake_thread(parent: PathBuf, wake: std::sync::Arc<Notify>) {
+    use notify::Watcher;
+
+    std::thread::Builder::new()
+        .name("mara-jsonl-notify".into())
+        .spawn(move || {
+            let wake_cb = wake.clone();
+            let mut watcher = match notify::RecommendedWatcher::new(
+                move |res: std::result::Result<notify::Event, notify::Error>| {
+                    let _ = res;
+                    wake_cb.notify_one();
+                },
+                notify::Config::default(),
+            ) {
+                Ok(w) => w,
+                Err(_) => return,
+            };
+            if watcher.watch(&parent, notify::RecursiveMode::NonRecursive).is_err() {
+                return;
+            }
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        })
+        .ok();
+}
+
 async fn tail_one(
     adapter_name: String,
     path: PathBuf,
     ckpt_dir: PathBuf,
     poll: Duration,
+    notify_hot_tail: bool,
     out: EventSender,
 ) -> Result<()> {
     let ckpt_path = checkpoint_path_for(&ckpt_dir, &path);
     let mut offset = load_checkpoint(&ckpt_path).await.unwrap_or(0);
     debug!(adapter = %adapter_name, path = ?path, start_offset = offset, "tailing file");
+
+    #[cfg(all(feature = "notify", unix))]
+    let fs_wake: Option<std::sync::Arc<Notify>> = if notify_hot_tail {
+        let parent = path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let n = std::sync::Arc::new(Notify::new());
+        spawn_fs_wake_thread(parent, n.clone());
+        Some(n)
+    } else {
+        None
+    };
+    #[cfg(not(all(feature = "notify", unix)))]
+    let fs_wake: Option<std::sync::Arc<Notify>> = None;
 
     loop {
         let file = match OpenOptions::new().read(true).open(&path).await {
@@ -142,7 +195,16 @@ async fn tail_one(
                     if let Err(e) = save_checkpoint(&ckpt_path, offset).await {
                         warn!(adapter = %adapter_name, "checkpoint save failed: {e}");
                     }
-                    tokio::time::sleep(poll).await;
+                    if let Some(ref w) = fs_wake {
+                        tokio::select! {
+                            _ = tokio::time::sleep(poll) => {}
+                            _ = w.notified() => {
+                                debug!(adapter = %adapter_name, path = ?path, "fs notify wake");
+                            }
+                        }
+                    } else {
+                        tokio::time::sleep(poll).await;
+                    }
                     // If the file was truncated, reopen.
                     let f = reader.get_ref();
                     match f.metadata().await {
@@ -317,6 +379,7 @@ mod tests {
             paths: vec![log.clone()],
             checkpoint_dir: ckpt,
             poll_interval: Duration::from_millis(20),
+            notify_hot_tail: false,
         };
         let adapter = Arc::new(JsonlAdapter::new(cfg));
 

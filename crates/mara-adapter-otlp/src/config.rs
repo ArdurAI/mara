@@ -16,6 +16,9 @@ pub struct OtlpHttpAdapterConfig {
     /// Requests larger than this return HTTP 413 without parsing.
     #[serde(default = "default_max_body_bytes")]
     pub max_body_bytes: usize,
+    /// Optional gRPC bind address (e.g. `:4317`). When `None`, gRPC is disabled.
+    #[serde(skip)]
+    pub grpc_listen: Option<SocketAddr>,
 }
 
 impl OtlpHttpAdapterConfig {
@@ -23,7 +26,12 @@ impl OtlpHttpAdapterConfig {
     /// listen address are required; other fields take MVP defaults.
     #[must_use]
     pub fn new(name: impl Into<String>, http_listen: SocketAddr) -> Self {
-        Self { name: name.into(), http_listen, max_body_bytes: default_max_body_bytes() }
+        Self {
+            name: name.into(),
+            http_listen,
+            max_body_bytes: default_max_body_bytes(),
+            grpc_listen: None,
+        }
     }
 }
 

@@ -8,14 +8,18 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use mara_adapter_analytics::{AnalyticsHttpAdapter, AnalyticsHttpAdapterConfig};
+use mara_adapter_hooks::{HooksHttpAdapter, HooksHttpAdapterConfig};
 use mara_adapter_jsonl::{JsonlAdapter, JsonlAdapterConfig};
 use mara_adapter_llm_proxy::{
     LlmProxyAdapter, LlmProxyAdapterConfig, PassthroughNormalizer, UpstreamNormalizer,
 };
 use mara_adapter_otlp::{OtlpHttpAdapter, OtlpHttpAdapterConfig};
 use mara_core::config::{
-    Config, FileSinkConfig as ConfigFileSinkConfig, JsonlAdapterConfig as CfgJsonl,
+    AnalyticsAdapterConfig as CfgAnalytics, Config, FileSinkConfig as ConfigFileSinkConfig,
+    HooksAdapterConfig as CfgHooks, JsonlAdapterConfig as CfgJsonl,
     LlmProxyAdapterConfig as CfgLlmProxy, OtlpAdapterConfig as CfgOtlp,
     OtlpSinkConfig as CfgOtlpSink, PipelineConfig, PolicyStageConfig, ServerConfig,
     StdoutSinkConfig as ConfigStdoutSinkConfig,
@@ -41,6 +45,8 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
         &cfg.adapters.jsonl,
         &cfg.adapters.otlp,
         &cfg.adapters.llm_proxy,
+        &cfg.adapters.hooks,
+        &cfg.adapters.analytics,
     );
 
     // Build sinks by name.
@@ -151,12 +157,15 @@ fn build_adapters(
     jsonl_cfgs: &[CfgJsonl],
     otlp_cfgs: &[CfgOtlp],
     llm_proxy_cfgs: &[CfgLlmProxy],
+    hooks_cfgs: &[CfgHooks],
+    analytics_cfgs: &[CfgAnalytics],
 ) -> std::collections::HashMap<String, Arc<dyn Adapter>> {
     let mut out: std::collections::HashMap<String, Arc<dyn Adapter>> =
         std::collections::HashMap::new();
     for c in jsonl_cfgs {
         let paths: Vec<std::path::PathBuf> = c.globs.iter().map(std::path::PathBuf::from).collect();
-        let cfg = JsonlAdapterConfig::new(c.name.clone(), paths, c.checkpoint_path.clone());
+        let mut cfg = JsonlAdapterConfig::new(c.name.clone(), paths, c.checkpoint_path.clone());
+        cfg.notify_hot_tail = c.notify_hot_tail;
         out.insert(c.name.clone(), Arc::new(JsonlAdapter::new(cfg)));
     }
     for c in otlp_cfgs {
@@ -164,6 +173,18 @@ fn build_adapters(
             Ok(addr) => {
                 let mut cfg = OtlpHttpAdapterConfig::new(c.name.clone(), addr);
                 cfg.max_body_bytes = c.max_body_bytes;
+                if !c.grpc_listen.trim().is_empty() {
+                    match c.grpc_listen.trim().parse::<SocketAddr>() {
+                        Ok(g) => cfg.grpc_listen = Some(g),
+                        Err(err) => {
+                            warn!(
+                                adapter = %c.name,
+                                listen = %c.grpc_listen,
+                                "invalid grpc_listen; gRPC disabled: {err}"
+                            );
+                        }
+                    }
+                }
                 out.insert(c.name.clone(), Arc::new(OtlpHttpAdapter::new(cfg)));
             }
             Err(err) => {
@@ -203,8 +224,52 @@ fn build_adapters(
         }
         let mut pcfg = LlmProxyAdapterConfig::new(c.name.clone(), listen, upstream);
         pcfg.max_body_bytes = c.max_body_bytes;
+        pcfg.upstream_connect_timeout = Duration::from_secs(c.upstream_connect_timeout_secs);
+        pcfg.upstream_headers_timeout = Duration::from_secs(c.upstream_headers_timeout_secs);
+        pcfg.upstream_body_read_timeout = Duration::from_secs(c.upstream_body_read_timeout_secs);
+        pcfg.upstream_sse_frame_idle_timeout = Duration::from_secs(c.upstream_sse_frame_idle_timeout_secs);
+        pcfg.max_in_flight_connections = c.max_in_flight_connections;
         let nz = llm_proxy_normalizer(c.normalizer.as_str(), server);
         out.insert(c.name.clone(), Arc::new(LlmProxyAdapter::new(pcfg, nz)));
+    }
+    for c in hooks_cfgs {
+        let addr: SocketAddr = match c.http_listen.parse() {
+            Ok(a) => a,
+            Err(err) => {
+                warn!(
+                    adapter = %c.name,
+                    listen = %c.http_listen,
+                    "invalid hooks http_listen; skipping: {err}"
+                );
+                continue;
+            }
+        };
+        if !addr.ip().is_loopback() {
+            warn!(
+                adapter = %c.name,
+                %addr,
+                "hooks listening on non-loopback; use TLS and authentication in front of this port (see docs/otlp-http-receiver-threat-model.md)"
+            );
+        }
+        let mut hcfg = HooksHttpAdapterConfig::new(c.name.clone(), addr);
+        hcfg.max_body_bytes = c.max_body_bytes;
+        out.insert(c.name.clone(), Arc::new(HooksHttpAdapter::new(hcfg)));
+    }
+    for c in analytics_cfgs {
+        let url = match reqwest::Url::parse(c.url.trim()) {
+            Ok(u) => u,
+            Err(err) => {
+                warn!(adapter = %c.name, url = %c.url, "invalid analytics url; skipping: {err}");
+                continue;
+            }
+        };
+        let acfg = AnalyticsHttpAdapterConfig::new(
+            c.name.clone(),
+            url,
+            c.poll_interval_secs,
+            c.checkpoint_path.clone(),
+        );
+        out.insert(c.name.clone(), Arc::new(AnalyticsHttpAdapter::new(acfg)));
     }
     out
 }
@@ -313,9 +378,12 @@ async fn compose_pipeline(
         path: None,
     })?;
 
-    let pipeline = Pipeline::new(p.name.clone(), chosen_adapters, chain, chosen_sinks)
+    let mut pipeline = Pipeline::new(p.name.clone(), chosen_adapters, chain, chosen_sinks)
         .with_self_metrics(self_metrics)
         .with_audit_policy_drops(p.audit_policy_drops);
+    if let Some(ref w) = p.wal_spool_path {
+        pipeline = pipeline.with_wal_spool_path(w.clone());
+    }
     Ok(pipeline.start().await?)
 }
 

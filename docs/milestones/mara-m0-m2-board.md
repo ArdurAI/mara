@@ -1,6 +1,6 @@
-# Mara Milestone Board (M0/M1/M2)
+# Mara Milestone Board (M0–M3)
 
-This board converts recent test findings into a tracked execution plan. **M2-16+** rows capture the 2026 market-gap backlog (correlation IDs, semconv governance, OpenInference / eval exports, optional Presidio-class PII, upstream semantics, vector/GPU spike).
+This board converts recent test findings into a tracked execution plan. **M2-16+** rows capture the 2026 market-gap backlog (correlation IDs, semconv governance, OpenInference / eval exports, optional Presidio-class PII, upstream semantics, vector/GPU spike). **M3** rows capture the **god-dev-research** backlog (security hardening for network listeners, Tier B/C adapters, parity gaps, spec alignment, scale evidence).
 
 ## Status Legend
 
@@ -22,6 +22,15 @@ This board converts recent test findings into a tracked execution plan. **M2-16+
 - **P0**: Must land to keep roadmap credibility / unblock downstream work
 - **P1**: High value, should land in planned milestone window
 - **P2**: Important, but can slip without blocking core adoption
+
+## Difficulty Key (M3+)
+
+Used in the M3 table only (older rows predate this column).
+
+- **L**: Small change, roughly days
+- **M**: About one sprint (1–2 weeks)
+- **H**: Multi-week or cross-cutting (multiple crates, CI, docs)
+- **VH**: Multi-milestone, research-heavy, or high uncertainty
 
 ## M0 — Prove Core Value + Prevent Regressions (0–2 weeks)
 
@@ -88,6 +97,33 @@ Mara is clearly differentiated through cross-runtime and agent-level observabili
 | M2-21 | P2 | [x] | Document single-upstream proxy semantics | Platform | 2026-08-14 | Operator doc states today’s **one upstream** behavior (no automatic failover); if multi-upstream is introduced later, retry/failover rules must be specified—addresses market complaints about opaque gateway routing. |
 | M2-22 | P2 | [x] | Vector DB / GPU telemetry spike | Integrations | 2026-08-18 | Time-boxed spike: whether Mara gains a **separate** adapter/scraper path for vector-store and GPU counters (OpenLIT-style breadth) without bloating `llm-proxy`; output is ADR or `FINDINGS.md` recommendation, not necessarily code. |
 
+## M3 — Research, security, and parity backlog (2026-05)
+
+### Milestone Outcome
+
+Mara closes documented trust-boundary gaps on network listeners, ships Tier B/C ingestion where the market expects it, proves multi-runtime behavior beyond fixtures, and aligns with evolving OTel GenAI conventions without over-claiming stability.
+
+Tasks are **ordered by priority first** (P0 → P2), then by **difficulty** (L → VH) within the same priority band.
+
+| Ticket | Priority | Difficulty | Status | Task | Owner | ETA | Acceptance Criteria |
+|---|---|---|---|---|---|---|---|
+| M3-01 | P0 | H | [x] | LLM proxy: upstream HTTP client timeouts (connect / read / write) | Platform + Runtime | TBD | `LlmProxyAdapterConfig` timeout fields + `tokio::time::timeout` / connector connect timeout; integration test `upstream_headers_timeout_emits_upstream_timeout`; `upstream_timeout` in taxonomy. |
+| M3-02 | P0 | H | [x] | LLM proxy: global in-process concurrent connection cap | Platform | TBD | `max_in_flight_connections` + semaphore; raw **503** when overloaded (documented in proxy code). |
+| M3-03 | P1 | M | [x] | OTLP HTTP receiver: threat model + operator checklist | Security/Policy + Platform | TBD | `docs/otlp-http-receiver-threat-model.md` published. |
+| M3-04 | P1 | M | [x] | OTLP HTTP receiver: optional non-loopback guard (`allow_non_loopback_listen` or equivalent) | Platform | TBD | `OtlpAdapterConfig::allow_non_loopback_listen` + validate HTTP+gRPC binds. |
+| M3-05 | P1 | VH | [x] | Implement `mara-adapter-hooks` (replace M0 stub) | Integrations + Runtime | TBD | HTTP POST `Event` / `{"events":[]}` ; `mara-cli` wiring; crate README. |
+| M3-06 | P1 | H | [x] | Raise **Cursor** runtime schema completeness to ≥85% (CI gate) | Runtime + Platform | TBD | Fixture `cursor-hooks-sample.jsonl` + gate passes (100% on sample rows). |
+| M3-07 | P1 | H | [x] | Token / cost signals for Cursor hooks where payload allows | Runtime | TBD | `docs/compat-matrix.md` Cursor rows updated for usage-derived token/cost signals. |
+| M3-08 | P2 | M | [x] | OTLP gRPC receiver on `:4317` (MVP+1) | Platform | TBD | `tonic` server + `grpc_listen`; shares decode with HTTP. |
+| M3-09 | P2 | VH | [~] | WAL / crash-recovery durability for pipeline sink path | Platform | TBD | **Partial:** optional `wal_spool_path` post-policy JSONL + `docs/observability/pipeline-wal-spool.md`. Full ADR-0003 replay WAL still open. |
+| M3-10 | P2 | H | [x] | Implement `mara-adapter-analytics` (Augment / Tier C) | Integrations | TBD | GET poller + checkpoint + backoff; CLI wiring. |
+| M3-11 | P2 | H | [x] | OTel GenAI **agent spans** alignment (experimental opt-in) | Runtime + Platform | TBD | `docs/observability/gen-ai-agent-spans-experimental.md` + `OTEL_SEMCONV_STABILITY_OPT_IN` guidance. |
+| M3-12 | P2 | M | [x] | JSONL adapter: inotify / FSEvents hot tail (replace strict poll loop where feasible) | Platform | TBD | `notify` feature + `notify_hot_tail` config; Unix wake path with poll fallback. |
+| M3-13 | P2 | H | [~] | Sustained throughput / soak harness (EPS, WAL, sink fan-out) | Platform + Observability | TBD | `scripts/benchmarks/m3-soak.sh` placeholder + docs pointer; extend with real load generator when OTLP bench harness lands. |
+| M3-14 | P2 | M | [~] | CI or scheduled job: live OTLP sample from Claude Code / Codex (opt-in secrets) | Platform + Integrations | TBD | `.github/workflows/otlp-live-sample.yml` (`workflow_dispatch`, documented). |
+| M3-15 | P2 | L | [x] | Hermes / OpenClaw: document metrics vs logs limits (proxy-only path) | Integrations | TBD | Extended `docs/integrations/hermes-openclaw.md`. |
+| M3-16 | P3 | L | [x] | Reconcile `CHANGELOG` / docs wording: OTLP HTTP vs “stub” | Platform | TBD | `CHANGELOG.md` known-gaps section updated for HTTP/protobuf + optional gRPC + WAL spool. |
+
 ## Sprint Buckets (Suggested)
 
 ### This Sprint
@@ -114,6 +150,25 @@ Mara is clearly differentiated through cross-runtime and agent-level observabili
 - [x] P1 M2-16 Gateway correlation ID header
 - [x] P1 M2-17 OTel GenAI semconv pin + CI drift
 - [x] P1 M1-11 Self-metrics latency semantics doc
+
+### M3 backlog (god-dev-research — execution order)
+
+1. M3-01 — LLM proxy upstream timeouts (**P0 / H**)
+2. M3-02 — LLM proxy global connection cap (**P0 / H**)
+3. M3-03 — OTLP receiver threat model + checklist (**P1 / M**)
+4. M3-04 — OTLP non-loopback guard (**P1 / M**)
+5. M3-05 — Hooks adapter implementation (**P1 / VH**)
+6. M3-06 — Cursor schema gate ≥85% (**P1 / H**)
+7. M3-07 — Cursor token/cost from hooks (**P1 / H**)
+8. M3-08 — OTLP gRPC `:4317` (**P2 / M**)
+9. M3-09 — WAL / crash recovery (**P2 / VH**)
+10. M3-10 — Analytics adapter (**P2 / H**)
+11. M3-11 — GenAI agent spans (**P2 / H**)
+12. M3-12 — JSONL hot tail (**P2 / M**)
+13. M3-13 — Soak / throughput harness (**P2 / H**)
+14. M3-14 — Live OTLP optional CI (**P2 / M**)
+15. M3-15 — Hermes/OpenClaw metrics doc (**P2 / L**)
+16. M3-16 — CHANGELOG OTLP wording (**P3 / L**)
 
 ### P0-Only Execution Order (Crunch Mode)
 
@@ -165,6 +220,8 @@ Mara is clearly differentiated through cross-runtime and agent-level observabili
 - **M2 Gate:** Same questions are answerable across at least three runtimes and one agent framework.
 - **M2 Reliability Gate (engineering review):** Sink fan-out does not serialize on slow sinks; readiness reflects adapters/sinks; `/metrics` scrape cost is bounded or documented.
 - **M2 Market-parity Gate (telemetry):** Gateway issues a **stable request correlation ID** when traces are absent (M2-16); **semconv version** is pinned and drift-guarded in CI (M2-17); **export path** to eval backends is documented without building eval UI (M2-20); **single-upstream** semantics are explicit in docs (M2-21).
+- **M3 Security Gate:** LLM proxy upstream **timeouts** and **connection cap** are implemented and tested (M3-01, M3-02); OTLP HTTP bind has **documented trust boundary** and non-loopback ergonomics (M3-03, M3-04).
+- **M3 Parity Gate:** Hooks adapter is **non-stub** for at least one Tier B runtime (M3-05); **Cursor** meets schema completeness gate or waiver is explicit and time-bounded (M3-06).
 
 ## Weekly Tracking Notes
 

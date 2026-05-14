@@ -15,6 +15,7 @@ thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
 

@@ -1,0 +1,41 @@
+{{ define "main" }}
+<section class="hero">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <p class="eyebrow">Open source · Rust · OpenTelemetry gen_ai</p>
+    <h1 class="hero-title">{{ site.Params.hero.title }}</h1>
+    <p class="hero-tagline">{{ site.Params.hero.tagline }}</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ site.Params.github }}">{{ site.Params.hero.primary }}</a>
+      <a class="btn btn-ghost" href="{{ "quickstart/" | relLangURL }}">{{ site.Params.hero.secondary }}</a>
+    </div>
+  </div>
+</section>
+
+<section class="pillars">
+  <div class="pillars-inner">
+    {{ range site.Params.pillars }}
+    <article class="pillar-card">
+      <h2>{{ .title }}</h2>
+      <p>{{ .body }}</p>
+    </article>
+    {{ end }}
+  </div>
+</section>
+
+<section class="cta-band">
+  <div class="cta-inner">
+    <div>
+      <h2>Ready to wire your stack?</h2>
+      <p>Deep architecture, ADRs, and runtime matrices live in the repository — this site is the front door.</p>
+    </div>
+    <a class="btn btn-primary" href="{{ site.Params.github }}">Star &amp; clone on GitHub</a>
+  </div>
+</section>
+
+{{ with .Content }}
+<section class="home-extra prose">
+  {{ . }}
+</section>
+{{ end }}
+{{ end }}

@@ -13,6 +13,7 @@ This document lists **stable** `mara.proxy.failure_kind` values emitted when the
 | `upstream_request_build` | Hyper could not construct the outbound upstream request. | absent |
 | `upstream_transport` | TCP/TLS/DNS or other transport error before a complete response. | absent |
 | `upstream_body_read` | Upstream returned a status line but reading the response body failed (non-SSE path). | set to the HTTP status that was received (e.g. 200) |
+| `upstream_timeout` | Connect, headers, body read, or SSE idle timeout fired while waiting on the upstream. | absent (synthetic **502** before upstream status is known, or mid-stream as documented in proxy code paths) |
 
 ## Passthrough upstream HTTP errors (no synthetic 502)
 

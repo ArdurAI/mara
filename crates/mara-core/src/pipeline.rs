@@ -11,10 +11,12 @@
 //! offsets land in M2 follow-up work; the API is shaped to admit
 //! them without changes.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use futures::future::join_all;
+use time::OffsetDateTime;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -41,6 +43,8 @@ pub struct Pipeline {
     pub channel_capacity: usize,
     /// When true, emit a minimal [`EventKind::System`] audit event to sinks on every policy drop.
     pub audit_policy_drops: bool,
+    /// Optional directory: append one JSON line per post-policy delivered event (`*.wal` per UTC day).
+    pub wal_spool_path: Option<PathBuf>,
 }
 
 impl Pipeline {
@@ -60,7 +64,15 @@ impl Pipeline {
             self_metrics: None,
             channel_capacity: DEFAULT_CHANNEL_CAPACITY,
             audit_policy_drops: false,
+            wal_spool_path: None,
         }
+    }
+
+    /// Attach optional post-policy WAL spool directory (see `docs/observability/pipeline-wal-spool.md`).
+    #[must_use]
+    pub fn with_wal_spool_path(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.wal_spool_path = Some(dir.into());
+        self
     }
 
     /// When enabled, policy [`ChainOutcome::Drop`](crate::policy::ChainOutcome::Drop) emits a
@@ -93,6 +105,7 @@ impl Pipeline {
             self_metrics,
             channel_capacity,
             audit_policy_drops,
+            wal_spool_path,
         } = self;
 
         info!(
@@ -100,6 +113,7 @@ impl Pipeline {
             adapters = adapters.len(),
             sinks = sinks.len(),
             stages = policy_chain.profile(),
+            wal_spool = wal_spool_path.is_some(),
             "starting pipeline"
         );
 
@@ -124,6 +138,7 @@ impl Pipeline {
         let dispatcher_chain = Arc::clone(&policy_chain);
         let pipeline_name = name.clone();
         let metrics_for_dispatcher = self_metrics.clone();
+        let wal_dir = wal_spool_path.clone();
         let dispatcher = tokio::spawn(async move {
             run_dispatcher(
                 pipeline_name,
@@ -132,6 +147,7 @@ impl Pipeline {
                 sink_txs,
                 metrics_for_dispatcher,
                 audit_policy_drops,
+                wal_dir,
             )
             .await
         });
@@ -214,6 +230,25 @@ fn build_policy_drop_audit_event(dropped: Event, chain_reason: &str, pipeline_na
     audit
 }
 
+fn wal_append_delivered(spool_dir: &std::path::Path, pipeline_name: &str, ev: &Event) -> std::io::Result<()> {
+    std::fs::create_dir_all(spool_dir)?;
+    let safe: String = pipeline_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let date = OffsetDateTime::now_utc().date();
+    let fname = format!("{safe}-{date}.wal");
+    let path = spool_dir.join(fname);
+    let mut line = serde_json::to_vec(ev)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    line.push(b'\n');
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    f.write_all(&line)?;
+    f.sync_data()?;
+    Ok(())
+}
+
 async fn run_dispatcher(
     pipeline_name: String,
     chain: Arc<PolicyChain>,
@@ -221,10 +256,27 @@ async fn run_dispatcher(
     sink_txs: Vec<EventSender>,
     self_metrics: Option<Arc<PipelineSelfMetrics>>,
     audit_policy_drops: bool,
+    wal_spool_path: Option<PathBuf>,
 ) -> Result<()> {
     while let Some(event) = input.recv().await {
         match chain.run(event).await {
             Ok(ChainOutcome::Deliver(ev)) => {
+                if let Some(dir) = wal_spool_path.clone() {
+                    let ev_clone = ev.clone();
+                    let pname_wal = pipeline_name.clone();
+                    let pname_log = pipeline_name.clone();
+                    tokio::spawn(async move {
+                        match tokio::task::spawn_blocking(move || {
+                            wal_append_delivered(&dir, &pname_wal, &ev_clone)
+                        })
+                        .await
+                        {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => warn!(pipeline = %pname_log, "wal append: {e}"),
+                            Err(e) => warn!(pipeline = %pname_log, "wal append join: {e:?}"),
+                        }
+                    });
+                }
                 if let Some(ref m) = self_metrics {
                     m.record_delivered(&ev);
                 }

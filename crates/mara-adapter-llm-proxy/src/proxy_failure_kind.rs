@@ -20,6 +20,8 @@ pub enum ProxyFailureKind {
     UpstreamTransport,
     /// Upstream returned headers but reading the body failed (non-SSE path).
     UpstreamBodyRead,
+    /// Upstream connect, header, body, or SSE idle deadline exceeded.
+    UpstreamTimeout,
 }
 
 impl ProxyFailureKind {
@@ -34,6 +36,7 @@ impl ProxyFailureKind {
             Self::UpstreamRequestBuild => "upstream_request_build",
             Self::UpstreamTransport => "upstream_transport",
             Self::UpstreamBodyRead => "upstream_body_read",
+            Self::UpstreamTimeout => "upstream_timeout",
         }
     }
 
@@ -48,6 +51,7 @@ impl ProxyFailureKind {
             Self::UpstreamRequestBuild,
             Self::UpstreamTransport,
             Self::UpstreamBodyRead,
+            Self::UpstreamTimeout,
         ]
     }
 }

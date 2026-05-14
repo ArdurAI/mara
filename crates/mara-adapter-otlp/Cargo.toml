@@ -21,6 +21,7 @@ prost.workspace = true
 flate2.workspace = true
 bytes.workspace = true
 time.workspace = true
+tonic.workspace = true
 opentelemetry-proto.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true

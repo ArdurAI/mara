@@ -1,0 +1,25 @@
+# Optional live OTLP sample (M3-14) — secrets-gated, not on PR path.
+name: otlp-live-sample
+
+on:
+  workflow_dispatch:
+    inputs:
+      otlp_endpoint:
+        description: "Base URL for OTLP/HTTP (e.g. https://api.honeycomb.io)"
+        required: true
+        type: string
+      api_key_secret:
+        description: "Name of repository/org secret holding the OTLP API key header value"
+        required: true
+        type: string
+
+jobs:
+  noop-with-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Document opt-in live OTLP
+        run: |
+          echo "This workflow is intentionally minimal: wire your exporter secret (${{ github.event.inputs.api_key_secret }})"
+          echo "and endpoint (${{ github.event.inputs.otlp_endpoint }}) in a follow-up step or external job."
+          echo "See docs/otlp-http-receiver-threat-model.md for trust-boundary guidance."

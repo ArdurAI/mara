@@ -78,12 +78,8 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let cfg = LlmProxyAdapterConfig {
-            name: "test-proxy".into(),
-            http_listen: proxy_addr,
-            upstream: format!("http://{up_addr}").parse().expect("uri"),
-            max_body_bytes: 1024 * 1024,
-        };
+        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
             std::sync::Arc::new(PassthroughNormalizer),
@@ -163,12 +159,8 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let cfg = LlmProxyAdapterConfig {
-            name: "test-proxy".into(),
-            http_listen: proxy_addr,
-            upstream: format!("http://{up_addr}").parse().expect("uri"),
-            max_body_bytes: 1024 * 1024,
-        };
+        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
             std::sync::Arc::new(PassthroughNormalizer),
@@ -210,12 +202,8 @@ mod tests {
         let proxy_addr: SocketAddr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let cfg = LlmProxyAdapterConfig {
-            name: "test-proxy".into(),
-            http_listen: proxy_addr,
-            upstream: "http://127.0.0.1:1".parse().expect("uri"),
-            max_body_bytes: 1024 * 1024,
-        };
+        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, "http://127.0.0.1:1".parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
             std::sync::Arc::new(PassthroughNormalizer),
@@ -248,6 +236,82 @@ mod tests {
 
         adapter.shutdown().await.expect("shutdown");
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), h).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn upstream_headers_timeout_emits_upstream_timeout() {
+        use std::convert::Infallible;
+        use std::net::SocketAddr;
+        use std::time::Duration;
+
+        use bytes::Bytes;
+        use http_body_util::{BodyExt, Full};
+        use hyper::body::Incoming;
+        use hyper::service::service_fn;
+        use hyper_util::rt::TokioIo;
+        use tokio::net::TcpListener;
+
+        let upstream = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let up_addr: SocketAddr = upstream.local_addr().unwrap();
+        let _up_task = tokio::spawn(async move {
+            let (stream, _) = upstream.accept().await.expect("accept");
+            let io = TokioIo::new(stream);
+            let svc = service_fn(|req: http::Request<Incoming>| async move {
+                let (_parts, body) = req.into_parts();
+                let _ = body.collect().await.expect("read").to_bytes();
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok::<_, Infallible>(
+                    http::Response::builder()
+                        .status(200)
+                        .header("content-type", "application/json")
+                        .body(Full::new(Bytes::from_static(br#"{"ok":true}"#)))
+                        .unwrap(),
+                )
+            });
+            let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, svc).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let proxy_listen = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let proxy_addr = proxy_listen.local_addr().unwrap();
+        drop(proxy_listen);
+
+        let mut cfg = LlmProxyAdapterConfig::new("test-timeout", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
+        cfg.upstream_headers_timeout = Duration::from_millis(150);
+        let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
+            cfg,
+            std::sync::Arc::new(PassthroughNormalizer),
+        ));
+        let (tx, mut rx) = mpsc::channel(DEFAULT_CHANNEL_CAPACITY);
+        let h = tokio::spawn({
+            let a = std::sync::Arc::clone(&adapter);
+            async move { a.start(tx).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let client = reqwest::Client::new();
+        let r = client
+            .post(format!("http://{proxy_addr}/api/chat"))
+            .body("{}")
+            .send()
+            .await
+            .expect("client");
+        assert_eq!(r.status(), reqwest::StatusCode::BAD_GATEWAY);
+
+        let ev = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("event");
+        assert!(matches!(ev.event_kind, EventKind::Error));
+        assert_eq!(
+            ev.attributes.get("mara.proxy.failure_kind"),
+            Some(&AttrValue::String("upstream_timeout".into()))
+        );
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -287,12 +351,8 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let cfg = LlmProxyAdapterConfig {
-            name: "test-proxy".into(),
-            http_listen: proxy_addr,
-            upstream: format!("http://{up_addr}").parse().expect("uri"),
-            max_body_bytes: 1024 * 1024,
-        };
+        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
             std::sync::Arc::new(PassthroughNormalizer),
@@ -369,12 +429,8 @@ mod tests {
         let proxy_addr = proxy_listen.local_addr().unwrap();
         drop(proxy_listen);
 
-        let cfg = LlmProxyAdapterConfig {
-            name: "test-proxy".into(),
-            http_listen: proxy_addr,
-            upstream: format!("http://{up_addr}").parse().expect("uri"),
-            max_body_bytes: 1024 * 1024,
-        };
+        let mut cfg = LlmProxyAdapterConfig::new("test-proxy", proxy_addr, format!("http://{up_addr}").parse().expect("uri"));
+        cfg.max_body_bytes = 1024 * 1024;
         let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
             cfg,
             std::sync::Arc::new(PassthroughNormalizer),

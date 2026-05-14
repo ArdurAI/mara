@@ -33,13 +33,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Known gaps (pre-1.0)
 
-- OTLP gRPC and HTTP receivers and senders are scaffolded as stubs; full implementation pending M2 follow-up.
-- WAL is in-memory bounded queues with disk-spill-as-stub; segmented append-only WAL per ADR-0003 pending M2 follow-up.
+- **OTLP**: HTTP/protobuf receivers for `/v1/logs` and `/v1/traces` are implemented in `mara-adapter-otlp`; optional gRPC (`:4317` style) logs+traces is available when `grpc_listen` is set. OTLP **HTTP exporters** in sinks are implemented; advanced exporter features remain incremental.
+- **Pipeline WAL**: optional post-policy JSONL spool per pipeline (`wal_spool_path`) appends delivered events with `fsync` per line batching policy documented in `docs/observability/pipeline-wal-spool.md`; full segmented append-only WAL + replay per ADR-0003 is still future work.
 - WASM policy host (Wasmtime) is scaffolded; built-in primitives ship; third-party WASM bundle loading and signature verification pending M4 follow-up.
 - Signed policy bundle distribution via OCI registry pending M4 follow-up.
 - Tamper-evident audit log with Merkle root export pending M4 follow-up.
 - 1-hour sustained 50k EPS bench is wired into `cargo bench` scaffolding but full perf harness with regression tracking dashboard pending M2 follow-up.
-- Per-runtime adapters at M3 are presets + tier classification; production-grade collectors for each runtime's specific surface (Codex `notify` hook subprocess wiring, Cursor hook IPC socket, Augment Analytics REST poller) ship as scaffolds plus documentation.
+- Per-runtime **presets** under `crates/mara-runtime-*` remain the fastest path to a working `mara.toml`; Tier **B** HTTP hooks ingest (`mara-adapter-hooks`) and Tier **C** analytics polling (`mara-adapter-analytics`) are now real adapters wired from `mara run`. Runtime-specific edge transports (Codex `notify` IPC, Cursor hook sockets) may still need local glue outside Mara.
 - SOC 2 Type I audit kickoff is scheduled but not yet underway.
 - CNCF Sandbox application is drafted but not submitted.
 

@@ -1,0 +1,66 @@
+# Mara project site — https://gohugo.io/
+# Replace baseURL when deploying (GitHub Pages, Netlify, etc.).
+baseURL = 'https://example.com/'
+# Hugo 0.158+ prefers `locale` over deprecated `languageCode`.
+locale = 'en-US'
+title = 'Mara'
+theme = 'mara'
+
+# Minimum Hugo: see README.md and .hugo_build.lock
+enableRobotsTXT = true
+enableEmoji = true
+
+[params]
+  description = 'AI-native telemetry for agents and LLMs — Rust, OpenTelemetry gen_ai, Apache 2.0.'
+  github = 'https://github.com/ArdurAI/mara'
+  docs_tree = 'https://github.com/ArdurAI/mara/tree/main/docs'
+  plans = 'https://github.com/ArdurAI/mara/tree/main/plans'
+  examples = 'https://github.com/ArdurAI/mara/blob/main/examples/mara.toml'
+  accent = '#22d3ee'
+
+  [params.hero]
+    title = 'Mara'
+    tagline = 'Ship AI runtime telemetry the same way you ship logs: one fast agent, OpenTelemetry gen_ai semantics, zero phone-home.'
+    primary = 'View on GitHub'
+    secondary = 'Quickstart'
+
+  [[params.pillars]]
+    title = 'OpenTelemetry aligned'
+    body = 'Canonical events follow gen_ai.* conventions — interoperate with collectors, Grafana, Phoenix, and your existing stack.'
+
+  [[params.pillars]]
+    title = 'Edge-first Rust binary'
+    body = 'Single static binary mindset: adapters for OTLP, JSONL, LLM HTTP proxy, hooks — fan-out to Loki, Kafka, files, OTLP sinks, and more.'
+
+  [[params.pillars]]
+    title = 'Privacy by design'
+    body = 'Zero phone-home by default. Prompt and raw-body capture are explicit opt-ins per runtime and policy — ZDR-friendly paths documented in-repo.'
+
+[menu]
+  [[menu.main]]
+    name = 'Home'
+    url = '/'
+    weight = 10
+  [[menu.main]]
+    name = 'Docs'
+    url = '/docs/'
+    weight = 20
+  [[menu.main]]
+    name = 'Quickstart'
+    url = '/quickstart/'
+    weight = 30
+  [[menu.main]]
+    name = 'Community'
+    url = '/community/'
+    weight = 40
+  [[menu.main]]
+    name = 'GitHub'
+    url = 'https://github.com/ArdurAI/mara'
+    weight = 50
+
+[outputs]
+  home = ['HTML', 'RSS']
+  section = ['HTML', 'RSS']
+
+[markup.goldmark.renderer]
+  unsafe = true

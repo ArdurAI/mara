@@ -27,9 +27,12 @@ hyper-util.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
 mara-policy.workspace = true
-mara-adapter-jsonl.workspace = true
+mara-adapter-jsonl = { workspace = true, features = ["notify"] }
+mara-adapter-hooks.workspace = true
+mara-adapter-analytics.workspace = true
 mara-adapter-llm-proxy.workspace = true
 mara-adapter-otlp.workspace = true
+reqwest.workspace = true
 mara-runtime-ollama.workspace = true
 mara-sink-file.workspace = true
 mara-sink-otlp.workspace = true

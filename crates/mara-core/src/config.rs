@@ -158,6 +158,10 @@ pub struct Adapters {
     pub otlp: Vec<OtlpAdapterConfig>,
     /// HTTP reverse-proxy adapters for LLM upstreams (Ollama, OpenAI-compat).
     pub llm_proxy: Vec<LlmProxyAdapterConfig>,
+    /// Tier B: HTTP hooks ingest (Cursor-style POST of canonical events).
+    pub hooks: Vec<HooksAdapterConfig>,
+    /// Tier C: vendor analytics REST polling (Augment-class).
+    pub analytics: Vec<AnalyticsAdapterConfig>,
 }
 
 /// Configuration for an OTLP HTTP/protobuf receiver adapter.
@@ -177,6 +181,12 @@ pub struct OtlpAdapterConfig {
     /// Maximum body size accepted in bytes (default 16 MiB).
     #[serde(default = "default_otlp_max_body_bytes")]
     pub max_body_bytes: usize,
+    /// Optional gRPC OTLP listen address (e.g. `127.0.0.1:4317`). Empty string disables gRPC.
+    #[serde(default)]
+    pub grpc_listen: String,
+    /// Allow binding [`http_listen`](OtlpAdapterConfig::http_listen) or [`grpc_listen`](OtlpAdapterConfig::grpc_listen) on non-loopback.
+    #[serde(default)]
+    pub allow_non_loopback_listen: bool,
 }
 
 fn default_otlp_http_listen() -> String {
@@ -185,6 +195,43 @@ fn default_otlp_http_listen() -> String {
 
 const fn default_otlp_max_body_bytes() -> usize {
     16 * 1024 * 1024
+}
+
+/// Tier B hooks adapter: HTTP ingest of canonical [`mara_schema::Event`] JSON (POST).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HooksAdapterConfig {
+    /// Logical name (must be unique across all adapters).
+    pub name: String,
+    /// Bind address for the hooks HTTP server (e.g. `127.0.0.1:17800`).
+    pub http_listen: String,
+    /// Maximum JSON body size per POST (default 8 MiB).
+    #[serde(default = "default_hooks_max_body_bytes")]
+    pub max_body_bytes: usize,
+    /// Allow non-loopback bind; same trust boundary as OTLP HTTP (see `docs/otlp-http-receiver-threat-model.md`).
+    #[serde(default)]
+    pub allow_non_loopback_listen: bool,
+}
+
+const fn default_hooks_max_body_bytes() -> usize {
+    8 * 1024 * 1024
+}
+
+/// Tier C analytics adapter: poll a vendor HTTP endpoint on an interval.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AnalyticsAdapterConfig {
+    /// Logical name (must be unique across all adapters).
+    pub name: String,
+    /// Full URL to `GET` on each poll (JSON array of events or NDJSON body).
+    pub url: String,
+    /// Seconds between successful polls. Default 60.
+    #[serde(default = "default_analytics_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    /// File path for last successful poll cursor (`etag:` or `last_modified:` prefix line).
+    pub checkpoint_path: PathBuf,
+}
+
+const fn default_analytics_poll_interval_secs() -> u64 {
+    60
 }
 
 /// Configuration for the HTTP LLM reverse-proxy adapter.
@@ -212,6 +259,25 @@ pub struct LlmProxyAdapterConfig {
     /// `docs/llm-proxy-non-loopback-threat-model.md`.
     #[serde(default)]
     pub allow_non_loopback_listen: bool,
+    /// TCP connect timeout to the upstream authority (seconds). Default 30.
+    #[serde(default = "default_upstream_connect_timeout_secs")]
+    pub upstream_connect_timeout_secs: u64,
+    /// Wall-clock bound for receiving the full HTTP response **head** from upstream after the
+    /// outbound request is dispatched (seconds). Covers slow TLS/DNS/TTFB. Default 300.
+    #[serde(default = "default_upstream_headers_timeout_secs")]
+    pub upstream_headers_timeout_secs: u64,
+    /// Per-direction read bound while buffering a unary upstream response body (seconds).
+    /// Default 900.
+    #[serde(default = "default_upstream_body_read_timeout_secs")]
+    pub upstream_body_read_timeout_secs: u64,
+    /// Max idle time between SSE/data frames while streaming an upstream response (seconds).
+    /// Default 600.
+    #[serde(default = "default_upstream_sse_frame_idle_timeout_secs")]
+    pub upstream_sse_frame_idle_timeout_secs: u64,
+    /// Max concurrent inbound HTTP/1 connections to this proxy. `0` disables the limit (not
+    /// recommended on non-loopback binds). Default 512.
+    #[serde(default = "default_llm_proxy_max_in_flight_connections")]
+    pub max_in_flight_connections: usize,
 }
 
 fn default_llm_proxy_normalizer() -> String {
@@ -220,6 +286,26 @@ fn default_llm_proxy_normalizer() -> String {
 
 const fn default_llm_proxy_max_body_bytes() -> usize {
     10 * 1024 * 1024
+}
+
+const fn default_upstream_connect_timeout_secs() -> u64 {
+    30
+}
+
+const fn default_upstream_headers_timeout_secs() -> u64 {
+    300
+}
+
+const fn default_upstream_body_read_timeout_secs() -> u64 {
+    900
+}
+
+const fn default_upstream_sse_frame_idle_timeout_secs() -> u64 {
+    600
+}
+
+const fn default_llm_proxy_max_in_flight_connections() -> usize {
+    512
 }
 
 /// Configuration for a JSONL tail adapter.
@@ -234,6 +320,9 @@ pub struct JsonlAdapterConfig {
     /// Optional parser variant; defaults to plain JSONL.
     #[serde(default)]
     pub parser: ParserVariant,
+    /// When `true`, use OS file notifications to wake the tail loop sooner (Unix/macOS).
+    #[serde(default)]
+    pub notify_hot_tail: bool,
 }
 
 /// Parser variant for the JSONL adapter.
@@ -379,6 +468,10 @@ pub struct PipelineConfig {
     /// event (no original body). Default: false (kill-switch / ZDR friendly).
     #[serde(default)]
     pub audit_policy_drops: bool,
+    /// Optional directory for post-policy WAL JSONL (`*.wal` per UTC day). See
+    /// `docs/observability/pipeline-wal-spool.md`.
+    #[serde(default)]
+    pub wal_spool_path: Option<PathBuf>,
 }
 
 fn default_chain() -> String {
@@ -443,6 +536,22 @@ impl Config {
                 });
             }
         }
+        for a in &self.adapters.hooks {
+            if !adapter_names.insert(a.name.clone()) {
+                return Err(Error::Config {
+                    message: format!("duplicate adapter name: {}", a.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
+        for a in &self.adapters.analytics {
+            if !adapter_names.insert(a.name.clone()) {
+                return Err(Error::Config {
+                    message: format!("duplicate adapter name: {}", a.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
 
         for (idx, a) in self.adapters.llm_proxy.iter().enumerate() {
             let addr: SocketAddr = a.http_listen.trim().parse().map_err(|e| Error::Config {
@@ -460,6 +569,121 @@ That exposes an OpenAI/Ollama-compatible HTTP surface on the network without in-
 Set `allow_non_loopback_listen = true` on this adapter only after reading docs/llm-proxy-non-loopback-threat-model.md and placing TLS + access control in front.",
                         a.name
                     ),
+                    path: Some(path.into()),
+                });
+            }
+            if a.upstream_connect_timeout_secs == 0
+                || a.upstream_headers_timeout_secs == 0
+                || a.upstream_body_read_timeout_secs == 0
+                || a.upstream_sse_frame_idle_timeout_secs == 0
+            {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.llm_proxy[{idx}] '{}' upstream timeout fields must be >= 1 second (use defaults by omitting the keys)",
+                        a.name
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+        }
+
+        for (idx, a) in self.adapters.otlp.iter().enumerate() {
+            let addr: SocketAddr = a.http_listen.trim().parse().map_err(|e| Error::Config {
+                message: format!(
+                    "adapters.otlp[{idx}].http_listen {:?} is not a valid socket address: {e}",
+                    a.http_listen
+                ),
+                path: Some(path.into()),
+            })?;
+            if !addr.ip().is_loopback() && !a.allow_non_loopback_listen {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.otlp[{idx}] '{}' listens on {addr}, which is not loopback-only. \
+The OTLP HTTP receiver has no built-in authentication; set `allow_non_loopback_listen = true` only after reading docs/otlp-http-receiver-threat-model.md and placing TLS + access control in front.",
+                        a.name
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+            if !a.grpc_listen.trim().is_empty() {
+                let gaddr: SocketAddr = a.grpc_listen.trim().parse().map_err(|e| Error::Config {
+                    message: format!(
+                        "adapters.otlp[{idx}].grpc_listen {:?} is not a valid socket address: {e}",
+                        a.grpc_listen
+                    ),
+                    path: Some(path.into()),
+                })?;
+                if !gaddr.ip().is_loopback() && !a.allow_non_loopback_listen {
+                    return Err(Error::Config {
+                        message: format!(
+                            "adapters.otlp[{idx}] '{}' gRPC listens on {gaddr}, which is not loopback-only. \
+Set `allow_non_loopback_listen = true` only after reading docs/otlp-http-receiver-threat-model.md and placing TLS + access control in front.",
+                            a.name
+                        ),
+                        path: Some(path.into()),
+                    });
+                }
+            }
+        }
+
+        for (idx, a) in self.adapters.hooks.iter().enumerate() {
+            let addr: SocketAddr = a.http_listen.trim().parse().map_err(|e| Error::Config {
+                message: format!(
+                    "adapters.hooks[{idx}].http_listen {:?} is not a valid socket address: {e}",
+                    a.http_listen
+                ),
+                path: Some(path.into()),
+            })?;
+            if !addr.ip().is_loopback() && !a.allow_non_loopback_listen {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.hooks[{idx}] '{}' listens on {addr}, which is not loopback-only. \
+Set `allow_non_loopback_listen = true` only after reading docs/otlp-http-receiver-threat-model.md and placing TLS + access control in front.",
+                        a.name
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+            if a.max_body_bytes < 1024 {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.hooks[{idx}] max_body_bytes must be >= 1024 (got {})",
+                        a.max_body_bytes
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+        }
+
+        for (idx, a) in self.adapters.analytics.iter().enumerate() {
+            let u = a.url.trim();
+            if u.is_empty() {
+                return Err(Error::Config {
+                    message: format!("adapters.analytics[{idx}].url must not be empty"),
+                    path: Some(path.into()),
+                });
+            }
+            if !(u.starts_with("http://") || u.starts_with("https://")) {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.analytics[{idx}].url must start with http:// or https:// (got {:?})",
+                        a.url
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+            if a.poll_interval_secs < 1 {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.analytics[{idx}].poll_interval_secs must be >= 1 (got {})",
+                        a.poll_interval_secs
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+            if a.checkpoint_path.as_os_str().is_empty() {
+                return Err(Error::Config {
+                    message: format!("adapters.analytics[{idx}].checkpoint_path must not be empty"),
                     path: Some(path.into()),
                 });
             }
@@ -513,6 +737,17 @@ Set `allow_non_loopback_listen = true` on this adapter only after reading docs/l
                     message: format!(
                         "pipeline '{}' references unknown policy chain '{}'",
                         p.name, p.policy_chain
+                    ),
+                    path: Some(path.into()),
+                });
+            }
+            if let Some(ref w) = p.wal_spool_path
+                && w.as_os_str().is_empty()
+            {
+                return Err(Error::Config {
+                    message: format!(
+                        "pipeline '{}' wal_spool_path must not be empty when set",
+                        p.name
                     ),
                     path: Some(path.into()),
                 });

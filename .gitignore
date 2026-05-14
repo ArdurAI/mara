@@ -31,3 +31,7 @@ sbom/
 secrets/
 *.key
 *.pfx
+
+# Hugo (`website/`) build output
+website/public/
+website/resources/

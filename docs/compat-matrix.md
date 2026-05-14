@@ -54,8 +54,8 @@ Legend: ✅ PASS · 🟡 PARTIAL · ❌ GAP · 🚫 N/A · ⚠️ EXPERIMENTAL
 - completion: 🟡 (same)
 - tool_call: ✅
 - tool_result: ✅
-- token_usage: ❌ (not exposed in hooks payload as of May 2026)
-- cost: ❌ (not exposed)
+- token_usage: 🟡 (`gen_ai.usage.*` when hooks JSON includes token fields; otherwise gap)
+- cost: 🟡 (`mara.cost_usd` estimated when usage + `[server.gen_ai_pricing]` allow; not vendor-native)
 - latency: ✅ (hook timing)
 - error: ✅
 - eval: 🚫 (no surface)

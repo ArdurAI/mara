@@ -1,0 +1,8 @@
+name = "Mara"
+license = "Apache-2.0"
+licenselink = "https://github.com/ArdurAI/mara/blob/main/LICENSE"
+description = "Minimal custom theme for mara.dev — deep slate, electric accents."
+min_version = "0.120.0"
+
+[author]
+  name = "ArdurAI / Mara contributors"

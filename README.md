@@ -79,8 +79,19 @@ OpenTelemetry Protocol (gRPC + HTTP), Grafana Loki, Splunk HEC, Elasticsearch / 
 │   ├── 06-deployment-blueprints/   # per-platform install patterns
 │   └── 07-quickstarts/             # per-runtime onboarding
 ├── docs/                           # engineering reference (ADRs, runbooks)
+├── website/                        # Hugo static site (project homepage)
 └── .github/                        # CI and governance config
 ```
+
+## Project website
+
+A **Hugo** static site (home, docs hub, community, quickstart) lives in [`website/`](website/). Preview locally:
+
+```bash
+cd website && hugo server -D
+```
+
+See [`website/README.md`](website/README.md) for theme notes, production build, and CI. Set `baseURL` in `website/hugo.toml` before deploying.
 
 ## Build
 

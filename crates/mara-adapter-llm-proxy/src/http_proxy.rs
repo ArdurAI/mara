@@ -3,7 +3,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Buf;
@@ -25,8 +25,10 @@ use mara_core::error::{Error, Result};
 use mara_core::health::Health;
 use mara_core::traits::{Adapter, EventSender};
 use mara_schema::AttrValue;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
+use tokio::net::TcpStream;
+use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -56,13 +58,33 @@ pub struct LlmProxyAdapterConfig {
     pub upstream: Uri,
     /// Maximum bytes buffered per direction (request / response).
     pub max_body_bytes: usize,
+    /// TCP connect timeout to upstream.
+    pub upstream_connect_timeout: Duration,
+    /// Timeout waiting for upstream HTTP response headers after dispatching the request.
+    pub upstream_headers_timeout: Duration,
+    /// Timeout for buffering a unary upstream response body.
+    pub upstream_body_read_timeout: Duration,
+    /// Max idle time between frames while reading an upstream SSE stream.
+    pub upstream_sse_frame_idle_timeout: Duration,
+    /// Max concurrent inbound connections. `0` disables the limit.
+    pub max_in_flight_connections: usize,
 }
 
 impl LlmProxyAdapterConfig {
-    /// Construct a new config.
+    /// Construct a new config with defaults for timeouts and connection cap.
     #[must_use]
     pub fn new(name: impl Into<String>, http_listen: SocketAddr, upstream: Uri) -> Self {
-        Self { name: name.into(), http_listen, upstream, max_body_bytes: 10 * 1024 * 1024 }
+        Self {
+            name: name.into(),
+            http_listen,
+            upstream,
+            max_body_bytes: 10 * 1024 * 1024,
+            upstream_connect_timeout: Duration::from_secs(30),
+            upstream_headers_timeout: Duration::from_secs(300),
+            upstream_body_read_timeout: Duration::from_secs(900),
+            upstream_sse_frame_idle_timeout: Duration::from_secs(600),
+            max_in_flight_connections: 512,
+        }
     }
 }
 
@@ -98,10 +120,8 @@ fn correlation_request_id(headers: &HeaderMap) -> String {
 /// correlation string on events may still be the original `rid` from [`correlation_request_id`].
 fn response_request_id_header_value(rid: &str) -> HeaderValue {
     let t = rid.trim();
-    if !t.is_empty() && t.is_ascii() {
-        if let Ok(v) = HeaderValue::from_str(t) {
-            return v;
-        }
+    if !t.is_empty() && t.is_ascii() && let Ok(v) = HeaderValue::from_str(t) {
+        return v;
     }
     const MAX: usize = 128;
     let ascii: String = rid
@@ -109,10 +129,8 @@ fn response_request_id_header_value(rid: &str) -> HeaderValue {
         .filter(|c| c.is_ascii_graphic() && !matches!(*c, '"' | '\\'))
         .take(MAX)
         .collect();
-    if !ascii.is_empty() {
-        if let Ok(v) = HeaderValue::from_str(&ascii) {
-            return v;
-        }
+    if !ascii.is_empty() && let Ok(v) = HeaderValue::from_str(&ascii) {
+        return v;
     }
     HeaderValue::from_str(&Uuid::now_v7().to_string()).expect("uuid v7 is header-safe ascii")
 }
@@ -207,6 +225,14 @@ fn bad_gateway() -> Response<ProxyBody> {
         .status(StatusCode::BAD_GATEWAY)
         .body(box_full(Full::new(Bytes::from("Bad Gateway"))))
         .expect("static response")
+}
+
+async fn reject_overloaded(mut stream: TcpStream) {
+    let _ = stream
+        .write_all(
+            b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
 }
 
 fn is_event_stream(headers: &HeaderMap) -> bool {
@@ -329,16 +355,16 @@ async fn emit_proxy_failure(
 async fn process_one(
     req: Request<Incoming>,
     client: Client<HttpConnector, Full<Bytes>>,
-    upstream: Uri,
-    max_body: usize,
+    cfg: Arc<LlmProxyAdapterConfig>,
     normalizer: Arc<dyn UpstreamNormalizer>,
     out: EventSender,
-    adapter_name: String,
 ) -> Result<Response<ProxyBody>, Infallible> {
+    let adapter_name = cfg.name.clone();
     let session_id = Uuid::now_v7().to_string();
     let t0 = Instant::now();
     let (parts, body_in) = req.into_parts();
     let rid = correlation_request_id(&parts.headers);
+    let max_body = cfg.max_body_bytes;
     let (req_body, req_trunc) = match collect_limited_body(body_in, max_body).await {
         Ok(v) => v,
         Err(e) => {
@@ -362,6 +388,8 @@ async fn process_one(
 
     let mut preq = proxied_request(&parts, req_body.clone(), req_trunc);
     preq.request_id = Some(rid.clone());
+
+    let upstream = cfg.upstream.clone();
 
     let upstream_host = if let Some(a) = upstream.authority() {
         a.to_string()
@@ -452,9 +480,9 @@ async fn process_one(
         }
     };
 
-    let up_resp = match client.request(up_req).await {
-        Ok(r) => r,
-        Err(e) => {
+    let up_resp = match tokio::time::timeout(cfg.upstream_headers_timeout, client.request(up_req)).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
             warn!("upstream request failed: {e}");
             emit_proxy_failure(
                 &session_id,
@@ -463,6 +491,23 @@ async fn process_one(
                 req_trunc,
                 ProxyFailureKind::UpstreamTransport,
                 &e.to_string(),
+                None,
+                &normalizer,
+                &out,
+                &adapter_name,
+            )
+            .await;
+            return Ok(bad_gateway());
+        }
+        Err(_) => {
+            warn!("upstream response headers timed out");
+            emit_proxy_failure(
+                &session_id,
+                &parts,
+                req_body,
+                req_trunc,
+                ProxyFailureKind::UpstreamTimeout,
+                "upstream response headers timed out",
                 None,
                 &normalizer,
                 &out,
@@ -494,6 +539,7 @@ async fn process_one(
         let preq_c = preq.clone();
         let max_agg = max_body;
         let sse_start = Instant::now();
+        let sse_idle = cfg.upstream_sse_frame_idle_timeout;
 
         tokio::spawn(async move {
             let mut agg: Vec<u8> = Vec::new();
@@ -501,7 +547,15 @@ async fn process_one(
             let mut stream_cut_short = false;
             let mut upstream_body = up_body_in;
 
-            while let Some(frame_res) = upstream_body.frame().await {
+            loop {
+                let frame_opt = tokio::time::timeout(sse_idle, upstream_body.frame()).await;
+                let frame_res = if let Ok(f) = frame_opt {
+                    f
+                } else {
+                    stream_cut_short = true;
+                    break;
+                };
+                let Some(frame_res) = frame_res else { break };
                 let frame = match frame_res {
                     Ok(f) => f,
                     Err(e) => {
@@ -546,23 +600,43 @@ async fn process_one(
         return Ok(Response::from_parts(resp_parts, body_for_client));
     }
 
-    let (resp_body, resp_trunc) = match collect_limited_body(up_body_in, max_body).await {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("read upstream body: {e}");
-            let presp = ProxiedResponse {
-                status: 502,
-                headers: Vec::new(),
-                body: Bytes::copy_from_slice(b"read upstream body failed"),
-                body_truncated: false,
-                failure_kind: Some(ProxyFailureKind::UpstreamBodyRead.as_str().to_owned()),
-                upstream_status: Some(up_status),
-                stream_cut_short: false,
-            };
-            normalize_send(&session_id, &preq, &presp, &normalizer, &out, &adapter_name).await;
-            return Ok(bad_gateway());
-        }
-    };
+    let body_deadline = cfg.upstream_body_read_timeout;
+    let (resp_body, resp_trunc) =
+        match tokio::time::timeout(body_deadline, collect_limited_body(up_body_in, max_body)).await
+        {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                warn!("read upstream body: {e}");
+                let presp = ProxiedResponse {
+                    status: 502,
+                    headers: Vec::new(),
+                    body: Bytes::copy_from_slice(b"read upstream body failed"),
+                    body_truncated: false,
+                    failure_kind: Some(ProxyFailureKind::UpstreamBodyRead.as_str().to_owned()),
+                    upstream_status: Some(up_status),
+                    stream_cut_short: false,
+                };
+                normalize_send(&session_id, &preq, &presp, &normalizer, &out, &adapter_name).await;
+                return Ok(bad_gateway());
+            }
+            Err(_) => {
+                warn!("upstream unary body read timed out");
+                emit_proxy_failure(
+                    &session_id,
+                    &parts,
+                    req_body,
+                    req_trunc,
+                    ProxyFailureKind::UpstreamTimeout,
+                    "upstream unary body read timed out",
+                    Some(up_status),
+                    &normalizer,
+                    &out,
+                    &adapter_name,
+                )
+                .await;
+                return Ok(bad_gateway());
+            }
+        };
 
     let presp = ProxiedResponse::from_upstream(
         up_status,
@@ -596,10 +670,18 @@ impl Adapter for LlmProxyAdapter {
             "llm http proxy listening"
         );
 
+        let mut connector = HttpConnector::new();
+        connector.set_connect_timeout(Some(self.cfg.upstream_connect_timeout));
         let client: Client<HttpConnector, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).build_http();
-        let upstream = self.cfg.upstream.clone();
-        let max_body = self.cfg.max_body_bytes;
+            Client::builder(TokioExecutor::new()).build(connector);
+
+        let cfg = Arc::new(self.cfg.clone());
+        let limiter = if cfg.max_in_flight_connections > 0 {
+            Some(Arc::new(Semaphore::new(cfg.max_in_flight_connections)))
+        } else {
+            None
+        };
+
         let normalizer = Arc::clone(&self.normalizer);
         let stop = self.stop.clone();
         let adapter_name = self.cfg.name.clone();
@@ -615,21 +697,30 @@ impl Adapter for LlmProxyAdapter {
                         path: Some(self.cfg.http_listen.to_string()),
                         source: e,
                     })?;
+                    let permit: Option<tokio::sync::OwnedSemaphorePermit> = if let Some(s) = &limiter {
+                        if let Ok(p) = s.clone().try_acquire_owned() {
+                            Some(p)
+                        } else {
+                            reject_overloaded(stream).await;
+                            continue;
+                        }
+                    } else {
+                        None
+                    };
                     let io = TokioIo::new(stream);
                     let client = client.clone();
-                    let upstream = upstream.clone();
+                    let cfg = Arc::clone(&cfg);
                     let normalizer = Arc::clone(&normalizer);
                     let out = out.clone();
-                    let name = adapter_name.clone();
                     let log_name = adapter_name.clone();
                     tokio::spawn(async move {
+                        let _permit = permit;
                         let service = service_fn(move |req: Request<Incoming>| {
                             let client = client.clone();
-                            let upstream = upstream.clone();
+                            let cfg = Arc::clone(&cfg);
                             let normalizer = Arc::clone(&normalizer);
                             let out = out.clone();
-                            let name = name.clone();
-                            async move { process_one(req, client, upstream, max_body, normalizer, out, name).await }
+                            async move { process_one(req, client, cfg, normalizer, out).await }
                         });
                         if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
                             debug!(adapter = %log_name, "connection ended: {e}");

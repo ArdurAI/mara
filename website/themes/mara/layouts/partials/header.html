@@ -1,0 +1,16 @@
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="{{ relLangURL "/" }}">
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <span class="brand-text">{{ site.Title }}</span>
+    </a>
+    <nav class="nav" aria-label="Primary">
+      {{ range site.Menus.main }}
+      <a href="{{ if strings.HasPrefix .URL "http" }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if strings.HasPrefix .URL "http" }} target="_blank" rel="noopener noreferrer"{{ end }}>{{ .Name }}</a>
+      {{ end }}
+    </nav>
+    <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle light and dark theme">
+      <span class="theme-icon" aria-hidden="true">◐</span>
+    </button>
+  </div>
+</header>

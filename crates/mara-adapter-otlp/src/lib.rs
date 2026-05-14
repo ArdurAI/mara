@@ -24,6 +24,7 @@
 #![doc(html_root_url = "https://docs.rs/mara-adapter-otlp/0.1.0")]
 
 pub mod config;
+pub mod grpc;
 pub mod http;
 pub mod normalize;
 

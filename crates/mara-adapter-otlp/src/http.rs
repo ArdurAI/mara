@@ -58,6 +58,18 @@ impl Adapter for OtlpHttpAdapter {
     }
 
     async fn start(&self, out: EventSender) -> Result<()> {
+        if let Some(addr) = self.cfg.grpc_listen {
+            let out_g = out.clone();
+            let name = self.cfg.name.clone();
+            let stop_g = self.stop.clone();
+            info!(adapter = %name, %addr, "otlp grpc receiver listening");
+            tokio::spawn(async move {
+                if let Err(e) = crate::grpc::serve(addr, out_g, name, stop_g).await {
+                    error!(error = %e, "otlp grpc server exited with error");
+                }
+            });
+        }
+
         let listener = TcpListener::bind(self.cfg.http_listen)
             .await
             .map_err(|e| Error::Io { path: Some(self.cfg.http_listen.to_string()), source: e })?;
@@ -212,6 +224,15 @@ async fn handle_logs(
     adapter_name: &str,
 ) -> std::result::Result<usize, prost::DecodeError> {
     let request = ExportLogsServiceRequest::decode(payload)?;
+    Ok(dispatch_export_logs(request, out, adapter_name).await)
+}
+
+/// Shared by HTTP and gRPC OTLP ingest.
+pub(crate) async fn dispatch_export_logs(
+    request: ExportLogsServiceRequest,
+    out: &EventSender,
+    adapter_name: &str,
+) -> usize {
     let mut count = 0;
     for resource_logs in &request.resource_logs {
         let resource = resource_logs.resource.as_ref();
@@ -222,13 +243,13 @@ async fn handle_logs(
                 event.mara.source_adapter = Some(adapter_name.to_owned());
                 if let Err(send_err) = out.send(event).await {
                     error!(adapter = %adapter_name, "downstream closed: {send_err}");
-                    return Ok(count);
+                    return count;
                 }
                 count += 1;
             }
         }
     }
-    Ok(count)
+    count
 }
 
 async fn handle_traces(
@@ -237,6 +258,14 @@ async fn handle_traces(
     adapter_name: &str,
 ) -> std::result::Result<usize, prost::DecodeError> {
     let request = ExportTraceServiceRequest::decode(payload)?;
+    Ok(dispatch_export_traces(request, out, adapter_name).await)
+}
+
+pub(crate) async fn dispatch_export_traces(
+    request: ExportTraceServiceRequest,
+    out: &EventSender,
+    adapter_name: &str,
+) -> usize {
     let mut count = 0;
     for resource_spans in &request.resource_spans {
         let resource = resource_spans.resource.as_ref();
@@ -247,13 +276,13 @@ async fn handle_traces(
                 event.mara.source_adapter = Some(adapter_name.to_owned());
                 if let Err(send_err) = out.send(event).await {
                     error!(adapter = %adapter_name, "downstream closed: {send_err}");
-                    return Ok(count);
+                    return count;
                 }
                 count += 1;
             }
         }
     }
-    Ok(count)
+    count
 }
 
 #[cfg(test)]
