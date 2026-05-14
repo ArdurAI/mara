@@ -3,11 +3,12 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Buf;
 use bytes::Bytes;
-use http::header::{self, HeaderMap, HeaderValue};
+use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::uri::Uri;
 use http::{Request, Response, StatusCode, Version};
 use http_body_util::BodyExt;
@@ -23,6 +24,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use mara_core::error::{Error, Result};
 use mara_core::health::Health;
 use mara_core::traits::{Adapter, EventSender};
+use mara_schema::AttrValue;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
@@ -79,6 +81,46 @@ impl LlmProxyAdapter {
     }
 }
 
+fn correlation_request_id(headers: &HeaderMap) -> String {
+    const IDS: &[&str] = &["x-mara-request-id", "x-request-id"];
+    for name in IDS {
+        if let Some(v) = headers.get(*name).and_then(|h| h.to_str().ok()) {
+            let t = v.trim();
+            if !t.is_empty() {
+                return t.to_owned();
+            }
+        }
+    }
+    Uuid::now_v7().to_string()
+}
+
+/// Value safe for `x-mara-request-id` on the HTTP response (visible ASCII subset). The canonical
+/// correlation string on events may still be the original `rid` from [`correlation_request_id`].
+fn response_request_id_header_value(rid: &str) -> HeaderValue {
+    let t = rid.trim();
+    if !t.is_empty() && t.is_ascii() {
+        if let Ok(v) = HeaderValue::from_str(t) {
+            return v;
+        }
+    }
+    const MAX: usize = 128;
+    let ascii: String = rid
+        .chars()
+        .filter(|c| c.is_ascii_graphic() && !matches!(*c, '"' | '\\'))
+        .take(MAX)
+        .collect();
+    if !ascii.is_empty() {
+        if let Ok(v) = HeaderValue::from_str(&ascii) {
+            return v;
+        }
+    }
+    HeaderValue::from_str(&Uuid::now_v7().to_string()).expect("uuid v7 is header-safe ascii")
+}
+
+fn insert_request_id_header(parts: &mut http::response::Parts, rid: &str) {
+    let val = response_request_id_header_value(rid);
+    parts.headers.insert(HeaderName::from_static("x-mara-request-id"), val);
+}
 fn hop_by_hop(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -224,6 +266,8 @@ fn proxied_request(
         headers: header_pairs(&parts.headers),
         body,
         body_truncated,
+        request_id: None,
+        gateway_duration_ms: None,
     }
 }
 
@@ -237,7 +281,17 @@ async fn normalize_send(
 ) {
     let events = normalizer.normalize(session_id, preq, presp);
     for mut ev in events {
+        crate::w3c_traceparent::apply_traceparent_from_request(&mut ev, preq);
         ev.mara.source_adapter = Some(adapter_name.to_owned());
+        if let Some(ref id) = preq.request_id {
+            ev.mara.request_id = Some(id.clone());
+        }
+        if let Some(ms) = preq.gateway_duration_ms
+            && ms.is_finite()
+            && ms >= 0.0
+        {
+            ev.attributes.insert("mara.proxy.gateway_duration_ms".into(), AttrValue::Float(ms));
+        }
         if let Err(send_err) = out.send(ev).await {
             error!("downstream closed: {send_err}");
             break;
@@ -258,7 +312,8 @@ async fn emit_proxy_failure(
     out: &EventSender,
     adapter_name: &str,
 ) {
-    let preq = proxied_request(parts, req_body, req_trunc);
+    let mut preq = proxied_request(parts, req_body, req_trunc);
+    preq.request_id = Some(correlation_request_id(&parts.headers));
     let presp = ProxiedResponse {
         status: 502,
         headers: Vec::new(),
@@ -281,7 +336,9 @@ async fn process_one(
     adapter_name: String,
 ) -> Result<Response<ProxyBody>, Infallible> {
     let session_id = Uuid::now_v7().to_string();
+    let t0 = Instant::now();
     let (parts, body_in) = req.into_parts();
+    let rid = correlation_request_id(&parts.headers);
     let (req_body, req_trunc) = match collect_limited_body(body_in, max_body).await {
         Ok(v) => v,
         Err(e) => {
@@ -303,7 +360,8 @@ async fn process_one(
         }
     };
 
-    let preq = proxied_request(&parts, req_body.clone(), req_trunc);
+    let mut preq = proxied_request(&parts, req_body.clone(), req_trunc);
+    preq.request_id = Some(rid.clone());
 
     let upstream_host = if let Some(a) = upstream.authority() {
         a.to_string()
@@ -424,6 +482,7 @@ async fn process_one(
         let hdrs = streaming_client_headers(&resp_parts);
         resp_parts.headers = hdrs;
         resp_parts.version = Version::HTTP_11;
+        insert_request_id_header(&mut resp_parts, &rid);
 
         let (mut tx, rx_body) = Channel::new(32);
         let body_for_client = box_channel(rx_body);
@@ -434,6 +493,7 @@ async fn process_one(
         let session_c = session_id.clone();
         let preq_c = preq.clone();
         let max_agg = max_body;
+        let sse_start = Instant::now();
 
         tokio::spawn(async move {
             let mut agg: Vec<u8> = Vec::new();
@@ -478,7 +538,9 @@ async fn process_one(
                 upstream_status: None,
                 stream_cut_short,
             };
-            normalize_send(&session_c, &preq_c, &presp, &normalizer_c, &out_c, &adapter_c).await;
+            let mut preq_for = preq_c.clone();
+            preq_for.gateway_duration_ms = Some(sse_start.elapsed().as_secs_f64() * 1000.0);
+            normalize_send(&session_c, &preq_for, &presp, &normalizer_c, &out_c, &adapter_c).await;
         });
 
         return Ok(Response::from_parts(resp_parts, body_for_client));
@@ -509,8 +571,11 @@ async fn process_one(
         resp_trunc,
     );
 
+    preq.gateway_duration_ms = Some(t0.elapsed().as_secs_f64() * 1000.0);
     normalize_send(&session_id, &preq, &presp, &normalizer, &out, &adapter_name).await;
 
+    let mut up_parts = up_parts;
+    insert_request_id_header(&mut up_parts, &rid);
     Ok(response_to_client(up_parts, resp_body))
 }
 
@@ -595,5 +660,24 @@ mod tests {
         let req: Uri = "/api/chat?x=1".parse().unwrap();
         let u = join_upstream(&base, &req).expect("uri");
         assert_eq!(u.to_string(), "http://127.0.0.1:11435/api/chat?x=1");
+    }
+
+    #[test]
+    fn response_request_id_preserves_header_safe_ascii() {
+        let v = response_request_id_header_value("abc-def_1.2~");
+        assert_eq!(v.to_str().unwrap(), "abc-def_1.2~");
+    }
+
+    #[test]
+    fn response_request_id_strips_non_ascii_then_truncates() {
+        let v = response_request_id_header_value("café-track");
+        assert_eq!(v.to_str().unwrap(), "caf-track");
+    }
+
+    #[test]
+    fn response_request_id_falls_back_to_uuid_when_unusable() {
+        let v = response_request_id_header_value("\n\t ");
+        let s = v.to_str().unwrap();
+        assert_eq!(s.len(), 36, "expected uuid string, got {s:?}");
     }
 }

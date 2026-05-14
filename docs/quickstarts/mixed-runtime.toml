@@ -1,0 +1,20 @@
+# Mixed-runtime quickstart — OTLP HTTP in + JSONL out (M2-07)
+schema_version = "1"
+
+[server]
+metrics_addr = "127.0.0.1:9099"
+
+[[adapters.otlp]]
+name = "otel"
+http_listen = "127.0.0.1:4319"
+max_body_bytes = 4194304
+
+[[sinks.file]]
+name = "events"
+path = "events.jsonl"
+
+[[pipelines]]
+name = "ingest"
+adapters = ["otel"]
+policy_chain = "default"
+sinks = ["events"]

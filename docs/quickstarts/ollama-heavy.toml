@@ -1,0 +1,21 @@
+# Ollama-heavy quickstart — proxy + JSONL (see docs/quickstarts/README.md)
+schema_version = "1"
+
+[server]
+metrics_addr = "127.0.0.1:9099"
+
+[[adapters.llm_proxy]]
+name = "ollama"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+normalizer = "ollama"
+
+[[sinks.file]]
+name = "events"
+path = "events.jsonl"
+
+[[pipelines]]
+name = "main"
+adapters = ["ollama"]
+policy_chain = "default"
+sinks = ["events"]

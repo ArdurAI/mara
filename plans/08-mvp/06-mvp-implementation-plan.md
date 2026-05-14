@@ -199,6 +199,8 @@ Before MVP week 1 starts:
 
 So the engineer knows where MVP work is going next without scope creeping into MVP itself:
 
+Engineering review backlog (2026-05), tracked as **M1-08–M1-11** and **M2-08–M2-22** on [`docs/milestones/mara-m0-m2-board.md`](../../docs/milestones/mara-m0-m2-board.md): honest `deny` policy semantics; LLM proxy threat model for non-loopback binds; Semgrep CI hardening; self-metrics latency documentation; parallel sink fan-out; `/readyz` vs `/healthz`; cheaper or clearer `/metrics` quantiles; cost-confidence fields; Helm/probe snippets; channel saturation metrics; dual latency (gateway vs engine); connection cap on metrics HTTP server; gateway correlation ID; OTel GenAI semconv pin + CI drift; OpenInference / Phoenix bridge; optional Presidio-class PII; eval-platform OTLP export profile; single-upstream semantics doc; vector/GPU telemetry spike.
+
 - gRPC OTLP receiver (`/v1/logs`, `/v1/traces` over tonic on `:4317`).
 - Splunk HEC sink.
 - Codex runtime preset activated (Claude Code-shape, OTLP receive).
@@ -227,6 +229,7 @@ So the engineer knows where MVP work is going next without scope creeping into M
 
 ## Cross-references
 
+- [`../../docs/milestones/mara-m0-m2-board.md`](../../docs/milestones/mara-m0-m2-board.md) — M0–M2 execution board (includes M1-08+ / M2-08+ engineering-review backlog and **M2-16–M2-22** market-gap rows).
 - [`01-scope-and-decision-criteria.md`](01-scope-and-decision-criteria.md) — what we're building, what we're not.
 - [`02-gap-analysis.md`](02-gap-analysis.md) — gaps closed by this plan.
 - [`07-test-and-improve-loop.md`](07-test-and-improve-loop.md) — how we iterate.

@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,42 @@ impl Default for SchemaVersion {
     }
 }
 
+/// One row of per-model token pricing (USD per 1M tokens) for M1-04 cost estimates.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GenAiModelPriceRow {
+    /// Model id prefix; longest matching `starts_with` on the effective model wins.
+    pub prefix: String,
+    /// USD per 1M input tokens when this row matches.
+    pub input_per_million_usd: f64,
+    /// USD per 1M output tokens when this row matches.
+    pub output_per_million_usd: f64,
+}
+
+/// `[server.gen_ai_pricing]` — estimate `mara.cost_usd` from usage + rates.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GenAiPricingConfig {
+    /// When `false`, `mara.cost_usd` is set to `0.0` (placeholder) after normalization.
+    pub estimate_enabled: bool,
+    /// Default USD per 1M input tokens when no model row matches.
+    pub default_input_per_million_usd: f64,
+    /// Default USD per 1M output tokens when no model row matches.
+    pub default_output_per_million_usd: f64,
+    /// Optional prefix rows (longest prefix wins on the effective model id).
+    pub models: Vec<GenAiModelPriceRow>,
+}
+
+impl Default for GenAiPricingConfig {
+    fn default() -> Self {
+        Self {
+            estimate_enabled: false,
+            default_input_per_million_usd: 0.25,
+            default_output_per_million_usd: 1.0,
+            models: Vec::new(),
+        }
+    }
+}
+
 /// Process-wide server settings.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -60,6 +97,13 @@ pub struct ServerConfig {
     /// Non-empty TOML value wins over `MARA_SERVICE_VERSION`.
     #[serde(default)]
     pub telemetry_service_version: Option<String>,
+    /// Optional `GenAI` token pricing for `mara.cost_usd` estimates (M1-04).
+    #[serde(default)]
+    pub gen_ai_pricing: GenAiPricingConfig,
+    /// Max concurrent HTTP connections for [`Self::metrics_addr`] when non-loopback (M2-15).
+    /// When unset and the bind address is not loopback, Mara defaults to 64.
+    #[serde(default)]
+    pub metrics_max_in_flight_connections: Option<usize>,
 }
 
 impl Default for ServerConfig {
@@ -69,7 +113,38 @@ impl Default for ServerConfig {
             log_format: "text".into(),
             telemetry_service_name: None,
             telemetry_service_version: None,
+            gen_ai_pricing: GenAiPricingConfig::default(),
+            metrics_max_in_flight_connections: None,
         }
+    }
+}
+
+impl GenAiPricingConfig {
+    /// Validate rates and model rows (finite, non-negative; non-empty prefixes).
+    pub fn validate(&self, path: &str) -> Result<()> {
+        let p = Some(path.to_owned());
+        let check_rate = |v: f64, label: &str| -> Result<()> {
+            if !v.is_finite() || v < 0.0 {
+                return Err(Error::Config {
+                    message: format!("{label} must be finite and >= 0 (got {v})"),
+                    path: p.clone(),
+                });
+            }
+            Ok(())
+        };
+        check_rate(self.default_input_per_million_usd, "server.gen_ai_pricing.default_input_per_million_usd")?;
+        check_rate(self.default_output_per_million_usd, "server.gen_ai_pricing.default_output_per_million_usd")?;
+        for (i, row) in self.models.iter().enumerate() {
+            if row.prefix.trim().is_empty() {
+                return Err(Error::Config {
+                    message: format!("server.gen_ai_pricing.models[{i}].prefix must not be empty"),
+                    path: p.clone(),
+                });
+            }
+            check_rate(row.input_per_million_usd, &format!("server.gen_ai_pricing.models[{i}].input_per_million_usd"))?;
+            check_rate(row.output_per_million_usd, &format!("server.gen_ai_pricing.models[{i}].output_per_million_usd"))?;
+        }
+        Ok(())
     }
 }
 
@@ -132,6 +207,11 @@ pub struct LlmProxyAdapterConfig {
     /// Maximum request/response body capture per direction (default 10 MiB).
     #[serde(default = "default_llm_proxy_max_body_bytes")]
     pub max_body_bytes: usize,
+    /// Allow binding [`http_listen`](LlmProxyAdapterConfig::http_listen) on a non-loopback
+    /// address (`0.0.0.0`, LAN IP, etc.). Default `false`; see
+    /// `docs/llm-proxy-non-loopback-threat-model.md`.
+    #[serde(default)]
+    pub allow_non_loopback_listen: bool,
 }
 
 fn default_llm_proxy_normalizer() -> String {
@@ -242,10 +322,29 @@ const fn default_otlp_sink_timeout_secs() -> u64 {
     30
 }
 
+/// How a `privacy` policy stage treats optional `Event.body` payloads (M1-07).
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivacyCaptureMode {
+    /// Drop raw `body` and clear `body_hashes` before sinks.
+    #[default]
+    MetadataOnly,
+    /// Replace `body` with SHA-256 fingerprints in `mara.body_hashes` (hex, lowercase).
+    HashedBodies,
+    /// Keep `body` only when `mara.policy_capture_optin` is true; otherwise behave like `metadata_only`.
+    BodyOptIn,
+}
+
 /// A single stage in a policy chain.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PolicyStageConfig {
+    /// Drop or transform captured bodies per [`PrivacyCaptureMode`].
+    Privacy {
+        /// Body handling mode for downstream sinks.
+        #[serde(default)]
+        mode: PrivacyCaptureMode,
+    },
     /// Built-in regex redaction.
     Redact {
         /// Built-in pack name (`builtin.pii`, etc.).
@@ -276,6 +375,10 @@ pub struct PipelineConfig {
     pub policy_chain: String,
     /// Sink logical names that receive events from this pipeline.
     pub sinks: Vec<String>,
+    /// When true, emit a minimal `System` audit event to sinks whenever a policy stage drops an
+    /// event (no original body). Default: false (kill-switch / ZDR friendly).
+    #[serde(default)]
+    pub audit_policy_drops: bool,
 }
 
 fn default_chain() -> String {
@@ -313,6 +416,8 @@ impl Config {
             });
         }
 
+        self.server.gen_ai_pricing.validate(path)?;
+
         let mut adapter_names = std::collections::HashSet::new();
         for a in &self.adapters.jsonl {
             if !adapter_names.insert(a.name.clone()) {
@@ -334,6 +439,27 @@ impl Config {
             if !adapter_names.insert(a.name.clone()) {
                 return Err(Error::Config {
                     message: format!("duplicate adapter name: {}", a.name),
+                    path: Some(path.into()),
+                });
+            }
+        }
+
+        for (idx, a) in self.adapters.llm_proxy.iter().enumerate() {
+            let addr: SocketAddr = a.http_listen.trim().parse().map_err(|e| Error::Config {
+                message: format!(
+                    "adapters.llm_proxy[{idx}].http_listen {:?} is not a valid socket address (expected host:port, e.g. 127.0.0.1:11434): {e}",
+                    a.http_listen
+                ),
+                path: Some(path.into()),
+            })?;
+            if !addr.ip().is_loopback() && !a.allow_non_loopback_listen {
+                return Err(Error::Config {
+                    message: format!(
+                        "adapters.llm_proxy[{idx}] '{}' listens on {addr}, which is not loopback-only. \
+That exposes an OpenAI/Ollama-compatible HTTP surface on the network without in-proxy authentication. \
+Set `allow_non_loopback_listen = true` on this adapter only after reading docs/llm-proxy-non-loopback-threat-model.md and placing TLS + access control in front.",
+                        a.name
+                    ),
                     path: Some(path.into()),
                 });
             }
@@ -425,6 +551,30 @@ sinks = ["out1"]
         assert_eq!(cfg.sinks.stdout.len(), 1);
         assert_eq!(cfg.pipelines.len(), 1);
         assert_eq!(cfg.pipelines[0].policy_chain, "default");
+        assert!(!cfg.pipelines[0].audit_policy_drops);
+    }
+
+    #[test]
+    fn parses_pipeline_audit_policy_drops() {
+        let raw = r#"
+schema_version = "1"
+
+[[adapters.jsonl]]
+name = "in1"
+globs = ["/tmp/events*.jsonl"]
+checkpoint_path = "/tmp/mara-ckpt"
+
+[[sinks.stdout]]
+name = "out1"
+
+[[pipelines]]
+name = "p1"
+adapters = ["in1"]
+sinks = ["out1"]
+audit_policy_drops = true
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse ok");
+        assert!(cfg.pipelines[0].audit_policy_drops);
     }
 
     #[test]
@@ -528,6 +678,95 @@ upstream = "http://127.0.0.1:11434"
     }
 
     #[test]
+    fn parses_privacy_policy_stage() {
+        let raw = r#"
+schema_version = "1"
+
+[[policies.zdr]]
+type = "privacy"
+mode = "hashed_bodies"
+
+[[policies.zdr]]
+type = "privacy"
+
+[[policies.zdr]]
+type = "sample"
+rate = 1.0
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse ok");
+        let stages = cfg.policies.get("zdr").expect("chain");
+        assert!(matches!(
+            stages[0],
+            PolicyStageConfig::Privacy {
+                mode: PrivacyCaptureMode::HashedBodies
+            }
+        ));
+        assert!(matches!(
+            stages[1],
+            PolicyStageConfig::Privacy {
+                mode: PrivacyCaptureMode::MetadataOnly
+            }
+        ));
+        assert!(matches!(stages[2], PolicyStageConfig::Sample { rate } if rate == 1.0));
+    }
+
+    #[test]
+    fn parses_deny_policy_stage() {
+        let raw = r#"
+schema_version = "1"
+
+[[policies.block_all]]
+type = "deny"
+reason = "maintenance window"
+
+[[policies.block_all]]
+type = "deny"
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse ok");
+        let stages = cfg.policies.get("block_all").expect("chain");
+        assert!(matches!(
+            &stages[0],
+            PolicyStageConfig::Deny { reason } if reason.as_deref() == Some("maintenance window")
+        ));
+        assert!(matches!(&stages[1], PolicyStageConfig::Deny { reason } if reason.is_none()));
+    }
+
+    #[test]
+    fn parses_gen_ai_pricing_from_toml() {
+        let raw = r#"
+schema_version = "1"
+
+[server.gen_ai_pricing]
+estimate_enabled = true
+default_input_per_million_usd = 0.5
+default_output_per_million_usd = 1.5
+
+[[server.gen_ai_pricing.models]]
+prefix = "llama"
+input_per_million_usd = 0.1
+output_per_million_usd = 0.2
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse");
+        assert!(cfg.server.gen_ai_pricing.estimate_enabled);
+        assert!((cfg.server.gen_ai_pricing.default_input_per_million_usd - 0.5).abs() < f64::EPSILON);
+        assert_eq!(cfg.server.gen_ai_pricing.models.len(), 1);
+        assert_eq!(cfg.server.gen_ai_pricing.models[0].prefix, "llama");
+    }
+
+    #[test]
+    fn rejects_negative_gen_ai_pricing_rate() {
+        let raw = r#"
+schema_version = "1"
+
+[server.gen_ai_pricing]
+default_input_per_million_usd = -1.0
+"#;
+        let err = Config::from_toml_str(raw, "test").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("finite") || msg.contains(">="), "got {msg}");
+    }
+
+    #[test]
     fn rejects_duplicate_adapter_name_across_otlp_and_llm_proxy() {
         let bad = r#"
 schema_version = "1"
@@ -542,5 +781,48 @@ upstream = "http://127.0.0.1:11434"
         let err = Config::from_toml_str(bad, "test").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("duplicate adapter"), "got: {msg}");
+    }
+
+    #[test]
+    fn rejects_llm_proxy_non_loopback_listen_without_opt_in() {
+        let bad = r#"
+schema_version = "1"
+[[adapters.llm_proxy]]
+name = "edge"
+http_listen = "0.0.0.0:11435"
+upstream = "http://127.0.0.1:11434"
+"#;
+        let err = Config::from_toml_str(bad, "test").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("not loopback"), "got: {msg}");
+        assert!(msg.contains("allow_non_loopback_listen"), "got: {msg}");
+    }
+
+    #[test]
+    fn allows_llm_proxy_non_loopback_listen_with_opt_in() {
+        let raw = r#"
+schema_version = "1"
+[[adapters.llm_proxy]]
+name = "edge"
+http_listen = "0.0.0.0:11435"
+upstream = "http://127.0.0.1:11434"
+allow_non_loopback_listen = true
+"#;
+        let cfg = Config::from_toml_str(raw, "test").expect("parse");
+        assert!(cfg.adapters.llm_proxy[0].allow_non_loopback_listen);
+    }
+
+    #[test]
+    fn rejects_llm_proxy_invalid_http_listen() {
+        let bad = r#"
+schema_version = "1"
+[[adapters.llm_proxy]]
+name = "bad"
+http_listen = "not-a-socket"
+upstream = "http://127.0.0.1:11434"
+"#;
+        let err = Config::from_toml_str(bad, "test").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("not a valid socket address"), "got: {msg}");
     }
 }

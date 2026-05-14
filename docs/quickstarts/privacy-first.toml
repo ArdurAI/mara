@@ -1,0 +1,29 @@
+# Privacy-first quickstart — metadata-only + PII redact + llm proxy (M2-07)
+schema_version = "1"
+
+[server]
+metrics_addr = "127.0.0.1:9099"
+
+[[adapters.llm_proxy]]
+name = "ollama"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+normalizer = "ollama"
+
+[[sinks.file]]
+name = "events"
+path = "events.jsonl"
+
+[[policies.default]]
+type = "privacy"
+mode = "metadata_only"
+
+[[policies.default]]
+type = "redact"
+pack = "builtin.pii"
+
+[[pipelines]]
+name = "main"
+adapters = ["ollama"]
+policy_chain = "default"
+sinks = ["events"]

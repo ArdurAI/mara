@@ -66,7 +66,7 @@ impl Policy for HeadSampler {
             ctx.record_decision(&mut event, PolicyDecisionKind::Sampled, None);
             Ok(PolicyOutcome::pass(event))
         } else {
-            Ok(PolicyOutcome::drop("head-sampled out"))
+            Ok(PolicyOutcome::drop(event, "head-sampled out"))
         }
     }
 }

@@ -38,8 +38,8 @@ use time::OffsetDateTime;
 pub const SCHEMA_VERSION: &str = "0.1.0";
 
 /// Pinned commit hash of `open-telemetry/semantic-conventions` that
-/// this build aligns with.  Updated as semconv evolves.
-pub const SEMCONV_COMMIT: &str = "PIN_ME_IN_M1";
+/// this build aligns with.  Kept in sync with `docs/semconv.lock`; CI enforces match.
+pub const SEMCONV_COMMIT: &str = "aec6e9d3e86754683dab7c707655d69d953b2768";
 
 /// A canonical Mara event.
 ///
@@ -319,6 +319,18 @@ pub struct MaraExtensions {
     pub cost_usd: Option<f64>,
     /// Where the cost number came from: vendor-emitted vs Mara-computed.
     pub cost_source: Option<CostSource>,
+    /// Confidence in [`Self::cost_usd`] when estimation inputs are partial.
+    pub cost_confidence: Option<CostConfidence>,
+    /// Stable per-request id from the LLM gateway (`x-mara-request-id`) for log/trace correlation.
+    pub request_id: Option<String>,
+    /// Agent or orchestration run identifier when the client supplies one (M2-03).
+    pub agent_id: Option<String>,
+    /// Logical step index or name within an agent run (M2-03).
+    pub step_id: Option<String>,
+    /// Tool invoked in an agent step (M2-03); distinct from [`Mcp::tool_name`] when MCP is also set.
+    pub tool_name: Option<String>,
+    /// Outcome label for a tool step (`success`, `error`, …) when supplied by the client (M2-03).
+    pub tool_outcome: Option<String>,
     /// Optional tenant identifier for multi-tenant capture.
     pub tenant_id: Option<String>,
     /// Compliance tags (`hipaa`, `pci`, `gdpr`, ...).
@@ -336,6 +348,19 @@ pub enum CostSource {
     Vendor,
     /// Mara computed the cost from token counts × price table.
     MaraEstimated,
+}
+
+/// Honesty tier for `mara.cost_usd` when inputs are incomplete (M2-11).
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CostConfidence {
+    /// Full request/response and usage suitable for chargeback-grade estimates.
+    High,
+    /// Estimates usable for trending; some fields were defaulted or inferred.
+    Medium,
+    /// Missing usage, truncation, or disabled pricing — treat cost as indicative only.
+    Low,
 }
 
 /// SHA-256 hashes of body content when raw capture is suppressed.

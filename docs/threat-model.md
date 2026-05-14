@@ -48,9 +48,10 @@ flowchart LR
 
 1. **Host ↔ Mara process**: Mara reads files owned by the operator user (or another user if explicitly granted) and binds local sockets. The host kernel is trusted.
 2. **Mara ↔ AI runtimes**: Mara accepts OTLP and JSONL produced by AI runtimes; the payloads are untrusted input.
-3. **Mara ↔ external sinks**: Mara initiates outbound TLS connections to operator-configured sinks. Sinks are trusted to receive but not assumed to be honest.
-4. **Mara ↔ policy bundle authors**: Bundles are signed by their authors; Mara verifies signatures via `cosign`.
-5. **Mara ↔ operator (config)**: Config files and process signals are operator-authoritative. Operator is trusted; we still validate.
+3. **Inbound HTTP ↔ LLM proxy (`[[adapters.llm_proxy]]`)**: When `http_listen` is not loopback-only, any reachable client may send OpenAI/Ollama-shaped HTTP traffic. Callers are **untrusted**; see [`llm-proxy-non-loopback-threat-model.md`](llm-proxy-non-loopback-threat-model.md).
+4. **Mara ↔ external sinks**: Mara initiates outbound TLS connections to operator-configured sinks. Sinks are trusted to receive but not assumed to be honest.
+5. **Mara ↔ policy bundle authors**: Bundles are signed by their authors; Mara verifies signatures via `cosign`.
+6. **Mara ↔ operator (config)**: Config files and process signals are operator-authoritative. Operator is trusted; we still validate.
 
 ## Asset inventory
 
@@ -69,6 +70,7 @@ flowchart LR
 | Threat | Surface | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | Untrusted process connects to OTLP gRPC receiver and injects bogus events | Adapter | Medium | Medium | Default bind to `127.0.0.1`; mTLS required for non-loopback binds; document the threat in the operator quickstart. |
+| Untrusted HTTP client reaches LLM reverse proxy on a non-loopback bind | LLM proxy | High | High | Refuse non-loopback `http_listen` unless `allow_non_loopback_listen`; operator must place TLS + auth in front; see [`llm-proxy-non-loopback-threat-model.md`](llm-proxy-non-loopback-threat-model.md). |
 | Forged policy bundle | Policy loader | Medium | High | `cosign`-verified signatures; unsigned bundles require explicit `--allow-unsigned-policy`. Default reject. |
 | Spoofed sink endpoint (DNS hijack, TLS-MITM) | Sink output | Low | High | TLS 1.3 required; certificate verification on by default; per-sink CA pinning supported. |
 | Spoofed operator signal (HUP) from another process | Process | Low | Low | POSIX signal handling is sender-authenticated by the kernel; same-user constraint applies. |
@@ -107,6 +109,7 @@ flowchart LR
 | Threat | Surface | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | OTLP receiver flooded with oversized payloads | Receivers | Medium | Medium | Bounded message sizes (tonic config); per-connection back-pressure. |
+| LLM proxy connection or body flood from the network | LLM proxy | Medium | High | Loopback default; non-loopback opt-in; `max_body_bytes` caps buffered bodies; no global connection cap yet—use firewall / front proxy; see [`llm-proxy-non-loopback-threat-model.md`](llm-proxy-non-loopback-threat-model.md). |
 | Regex DoS in policy redaction | Policy | Medium | High | `regex` crate is linear-time by construction; custom packs validated at load. |
 | WAL filling disk | WAL | Medium | High | Bounded size and age; metric on usage; overflow defaults to drop-oldest with operator alert. |
 | Slow sink causing event accumulation | Sinks | High | Medium | Per-sink WAL offsets independent; configurable backpressure; per-sink rate limit. |
@@ -154,3 +157,4 @@ This document is reviewed at every release. Material changes trigger a new revis
 - [`plans/05-evaluation/03-soc2-control-mapping.md`](../plans/05-evaluation/03-soc2-control-mapping.md).
 - [`plans/01-landscape/06-security-and-compliance.md`](../plans/01-landscape/06-security-and-compliance.md).
 - [`SECURITY.md`](../SECURITY.md).
+- [`llm-proxy-non-loopback-threat-model.md`](llm-proxy-non-loopback-threat-model.md) — LLM HTTP proxy when `http_listen` is not loopback-only.

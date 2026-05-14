@@ -19,6 +19,7 @@ mod exchange;
 mod http_proxy;
 mod normalizer;
 mod proxy_failure_kind;
+mod w3c_traceparent;
 
 pub use exchange::{ProxiedRequest, ProxiedResponse};
 pub use http_proxy::{LlmProxyAdapter, LlmProxyAdapterConfig};
@@ -36,6 +37,91 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn traceparent_header_sets_trace_and_span_ids() {
+        use std::convert::Infallible;
+        use std::net::SocketAddr;
+
+        use bytes::Bytes;
+        use http_body_util::{BodyExt, Full};
+        use hyper::body::Incoming;
+        use hyper::service::service_fn;
+        use hyper_util::rt::TokioIo;
+        use tokio::net::TcpListener;
+
+        let upstream = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let up_addr: SocketAddr = upstream.local_addr().unwrap();
+        let _up_task = tokio::spawn(async move {
+            let (stream, _) = upstream.accept().await.expect("accept");
+            let io = TokioIo::new(stream);
+            let svc = service_fn(|req: http::Request<Incoming>| async move {
+                let (_parts, body) = req.into_parts();
+                let b = body.collect().await.expect("read").to_bytes();
+                Ok::<_, Infallible>(
+                    http::Response::builder()
+                        .status(200)
+                        .header("content-type", "application/json")
+                        .body(Full::new(Bytes::from(format!(
+                            r#"{{"echo":"{}"}}"#,
+                            String::from_utf8_lossy(&b)
+                        ))))
+                        .unwrap(),
+                )
+            });
+            let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, svc).await;
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let proxy_listen = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let proxy_addr = proxy_listen.local_addr().unwrap();
+        drop(proxy_listen);
+
+        let cfg = LlmProxyAdapterConfig {
+            name: "test-proxy".into(),
+            http_listen: proxy_addr,
+            upstream: format!("http://{up_addr}").parse().expect("uri"),
+            max_body_bytes: 1024 * 1024,
+        };
+        let adapter = std::sync::Arc::new(LlmProxyAdapter::new(
+            cfg,
+            std::sync::Arc::new(PassthroughNormalizer),
+        ));
+        let (tx, mut rx) = mpsc::channel(DEFAULT_CHANNEL_CAPACITY);
+        let h = tokio::spawn({
+            let a = std::sync::Arc::clone(&adapter);
+            async move { a.start(tx).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        let tp = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        let client = reqwest::Client::new();
+        let r = client
+            .post(format!("http://{proxy_addr}/test"))
+            .header("traceparent", tp)
+            .body(r#"{"hello":"world"}"#)
+            .send()
+            .await
+            .expect("client");
+        assert_eq!(r.status(), 200);
+
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("event");
+        assert_eq!(
+            ev.trace_id.map(|t| t.0),
+            Some([
+                0x0a, 0xf7, 0x65, 0x19, 0x16, 0xcd, 0x43, 0xdd, 0x84, 0x48, 0xeb, 0x21, 0x1c, 0x80,
+                0x31, 0x9c
+            ])
+        );
+        assert_eq!(ev.span_id.map(|s| s.0), Some([0xb7, 0xad, 0x6b, 0x71, 0x69, 0x20, 0x33, 0x31]));
+
+        adapter.shutdown().await.expect("shutdown");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), h).await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn passthrough_emits_system_event() {

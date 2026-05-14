@@ -69,12 +69,35 @@ jobs:
   semgrep:
     name: semgrep
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    container:
-      image: returntocorp/semgrep
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
-      - run: semgrep ci --config=auto --error
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      # Fail the job on Semgrep findings (`--error`) while still emitting SARIF
+      # for the Security tab (upload step uses `if: always()`).
+      - name: Install Semgrep and scan
+        id: scan
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install "semgrep>=1.75.0"
+          set +e
+          semgrep scan --config auto --sarif --output semgrep.sarif --error
+          code=$?
+          if [ -f semgrep.sarif ]; then
+            echo "have_sarif=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_sarif=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      # Mandatory alternate signal for GitHub code scanning (Security → Code scanning alerts).
+      # Fork PRs and orgs without code scanning may deny upload; never fail the job on upload alone.
+      - name: Upload Semgrep SARIF
+        if: always() && steps.scan.outputs.have_sarif == 'true'
+        uses: github/codeql-action/upload-sarif@v3
         continue-on-error: true
+        with:
+          sarif_file: semgrep.sarif

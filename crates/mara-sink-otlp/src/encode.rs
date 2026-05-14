@@ -2,7 +2,7 @@
 
 use mara_core::Event;
 use mara_schema::{
-    AttrValue, CostSource, EventBody, EventKind, GenAi, MaraExtensions, Mcp, Resource, Scope,
+    AttrValue, CostConfidence, CostSource, EventBody, EventKind, GenAi, MaraExtensions, Mcp, Resource, Scope,
     SourceRuntime, SpanId, ToolType, TraceId,
 };
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
@@ -227,6 +227,21 @@ fn append_mara_attrs(out: &mut Vec<KeyValue>, m: &MaraExtensions) {
     if let Some(ref s) = m.session_id {
         out.push(str_kv("mara.session.id", s));
     }
+    if let Some(ref s) = m.request_id {
+        out.push(str_kv("mara.request_id", s));
+    }
+    if let Some(ref s) = m.agent_id {
+        out.push(str_kv("mara.agent.id", s));
+    }
+    if let Some(ref s) = m.step_id {
+        out.push(str_kv("mara.agent.step_id", s));
+    }
+    if let Some(ref s) = m.tool_name {
+        out.push(str_kv("mara.agent.tool_name", s));
+    }
+    if let Some(ref s) = m.tool_outcome {
+        out.push(str_kv("mara.agent.tool_outcome", s));
+    }
     if let Some(ref s) = m.turn_id {
         out.push(str_kv("mara.turn.id", s));
     }
@@ -242,6 +257,9 @@ fn append_mara_attrs(out: &mut Vec<KeyValue>, m: &MaraExtensions) {
     }
     if let Some(cs) = m.cost_source {
         out.push(str_kv("mara.cost.source", cost_source_to_str(cs)));
+    }
+    if let Some(cc) = m.cost_confidence {
+        out.push(str_kv("mara.cost.confidence", cost_confidence_to_str(cc)));
     }
     if !m.compliance_tags.is_empty() {
         let vals: Vec<AnyValue> = m
@@ -381,6 +399,15 @@ fn mcp_transport_to_str(t: mara_schema::McpTransport) -> &'static str {
         mara_schema::McpTransport::Sse => "sse",
         mara_schema::McpTransport::Websocket => "websocket",
         _ => "stdio",
+    }
+}
+
+fn cost_confidence_to_str(c: CostConfidence) -> &'static str {
+    match c {
+        CostConfidence::High => "high",
+        CostConfidence::Medium => "medium",
+        CostConfidence::Low => "low",
+        _ => "medium",
     }
 }
 

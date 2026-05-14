@@ -14,18 +14,19 @@ This page summarizes **what the HTTP reverse proxy + Ollama normalizer** put int
 | **`mara.session_id`** | One UUID per proxied HTTP exchange (correlation id for that call). |
 | **`resource.host_name` / `resource.process_pid`** | Set on every Ollama-normalized event (host + Mara's PID). Optional `resource.service_name` / `service_version` from `[server].telemetry_*` or `MARA_SERVICE_*`. |
 | **`gen_ai.conversation_id` / `mara.turn_id`** | Client JSON (`conversation_id`, `turn_id`, `metadata.*`) or correlation headers (`X-Mara-Conversation-Id`, `X-Conversation-Id`, `X-Mara-Turn-Id`, `X-Turn-Id`). |
+| **`trace_id` / `span_id`** | The inbound client request includes a valid W3C **`traceparent`** header ([W3C Trace Context](https://www.w3.org/TR/trace-context/)). |
 
 \*Request-side fields that are **not** in the client JSON (or are under different keys we do not parse yet) remain unset.
 
 ## Fields that often stay `null` (by design or not wired yet)
 
 - **`resource.service_name` / `service_version`**: unless `[server].telemetry_*` or `MARA_SERVICE_*` is set.
-- **`trace_id` / `span_id`**: no W3C `traceparent` propagation from the proxy yet.
+- **`trace_id` / `span_id`**: unless the client sends a valid W3C **`traceparent`** header on the proxied request (M1-03); malformed or all-zero trace ids are ignored.
 - **`body`**, **`body_hashes`**: raw prompt/completion capture is off by default (privacy / volume).
 - **`mcp`, `tool`, `agent`**: unused for plain Ollama HTTP.
 - **`gen_ai.conversation_id` / `mara.turn_id`**: unless the client sends correlation JSON or headers (see [`ollama-null-fields.md`](ollama-null-fields.md)).
 - **`reasoning_tokens`**: not mapped unless we add a stable field from Ollama/OpenAI payloads.
-- **`cost_usd`**: placeholder `0` with `mara_estimated` until pricing hooks exist.
+- **`cost_usd`**: `0.0` with `mara_estimated` until **`[server.gen_ai_pricing].estimate_enabled = true`**; then computed from usage and per-million rates (see [`ollama-gen-ai-pricing.md`](ollama-gen-ai-pricing.md)).
 
 ## How to re-run the tests
 
@@ -89,6 +90,10 @@ Ubuntu CI runs `scripts/benchmarks/ollama_proxy_smoke.sh` (mock Ollama + `mara` 
 ## Operator null-field guide
 
 See [`ollama-null-fields.md`](ollama-null-fields.md) and [`ollama-proxy-error-taxonomy.md`](ollama-proxy-error-taxonomy.md) for synthetic proxy failures.
+
+## Non-loopback bind (LAN / `0.0.0.0`)
+
+By default, `[[adapters.llm_proxy]].http_listen` must be **loopback-only** (`127.0.0.1` / `::1`). Wider binds require `allow_non_loopback_listen = true` and a deliberate security review. See [`llm-proxy-non-loopback-threat-model.md`](llm-proxy-non-loopback-threat-model.md).
 
 ## Related code
 

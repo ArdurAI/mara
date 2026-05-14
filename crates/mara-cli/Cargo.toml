@@ -19,7 +19,11 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+bytes.workspace = true
 http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 mara-core.workspace = true
 mara-schema.workspace = true
 mara-policy.workspace = true

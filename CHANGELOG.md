@@ -14,6 +14,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **M3**: Runtime presets for Claude Code, Codex, Cursor Agents, Kimi, Augment Code, Gemini CLI under `crates/mara-runtime-*`. Compatibility matrix published at `docs/compat-matrix.md`.
 - **M4**: STRIDE threat model at `docs/threat-model.md`. Security CI workflow (`cargo-audit`, `cargo-deny`, OSV scanner, Trivy filesystem scan, Semgrep). Release workflow with cross-platform builds (Linux glibc/musl amd64+arm64, macOS universal2, Windows x64), CycloneDX + SPDX SBOMs, SLSA Level 2 provenance attestations, `cosign` keyless signing, container image (distroless) push to ghcr.io. Security advisories process at `.github/SECURITY-ADVISORIES.md`.
 - **M5**: Helm chart at `packaging/helm/mara/`. systemd unit at `packaging/systemd/mara.service`. launchd plist at `packaging/launchd/dev.ardurai.mara.plist`. Homebrew formula at `packaging/homebrew/mara.rb`. Operational runbook at `docs/runbook.md`. This CHANGELOG.
+- **CI**: Semgrep in `.github/workflows/security.yml` fails on findings (`--error`) and uploads SARIF for GitHub code scanning (`github/codeql-action/upload-sarif`).
+- **Docs**: GenAI field parity matrix for Claude Code, Codex, Cursor, Kimi, and Ollama at `docs/integrations/runtime-parity-matrix.md`.
+- **Docs**: Self-metrics latency histogram semantics (`mara_gen_ai_request_duration_ms_*`, PromQL, ring buffer vs cumulative buckets) at `docs/observability/mara-self-metrics-latency-histogram.md`.
+- **CI / M2-02**: `scripts/benchmarks/schema_completeness_gate.py` plus job `schema-completeness-gate` — at least three runtime fixtures must average ≥85% fill on seven required `gen_ai`/`resource` fields.
+- **M2 (milestone board)**: Agent fields on `MaraExtensions`, gateway correlation id (`x-mara-request-id` / `mara.request_id`), dual latency metrics (gateway vs engine), `CostConfidence` for honest cost, parallel sink fan-out, `/readyz` readiness, bounded `/metrics` rendering, fan-out and sink-send-error counters, optional `server.metrics_max_in_flight_connections`, `docs/semconv.lock` + CI drift script, quickstarts, Kubernetes probe fragment, Phoenix/Presidio/eval OTLP notes, single-upstream proxy doc, vector/GPU spike ADR, Grafana compare-by-pipeline panel, and `scripts/materialize_agent_run_summary.py`.
+
+### Changed
+
+- **Breaking (policy authors)**: `PolicyOutcome::Drop` now includes the dropped `Event`. Use `PolicyOutcome::drop(event, reason)` instead of `PolicyOutcome::drop(reason)`. `ChainOutcome::Drop` is now `{ reason, event }` instead of a bare `String`.
+- **`/readyz` readiness**: `Health::is_aggregate_ready` is true only for `healthy` or `degraded` (not `starting`, `stopping`, `stopped`, or `failed`). `Adapter::health` / `Sink::health` default to `Health::healthy()` so typical pipelines stay ready unless an implementation opts into finer-grained status. See `docs/observability/mara-readyz-semantics.md`.
+- **LLM proxy**: Response `x-mara-request-id` is always a header-safe value (ASCII fast path, stripped graphic ASCII fallback, or UUID) while events keep the logical correlation id from the client or minted UUID.
+
+### Added
+
+- Per-pipeline **`audit_policy_drops`** (default `false`): when enabled, a minimal `System` audit event (no body; correlation + `mara.policy_audit.*` + policy decisions) is sent to sinks on every policy drop. See `docs/observability/mara-policy-drop-audit.md`.
 
 ### Known gaps (pre-1.0)
 

@@ -4,8 +4,10 @@
 //! sinks / policy chains, composes them into [`Pipeline`]s, and
 //! starts them.  Waits for SIGTERM / SIGINT for graceful drain.
 
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use mara_adapter_jsonl::{JsonlAdapter, JsonlAdapterConfig};
 use mara_adapter_llm_proxy::{
@@ -20,8 +22,10 @@ use mara_core::config::{
 };
 use mara_core::policy::{Policy, PolicyChain};
 use mara_core::traits::{Adapter, Sink};
-use mara_core::{Error, Pipeline};
-use mara_policy::builtin::{HeadSampler, RegexRedactor};
+use mara_core::{Error, Pipeline, PipelineSelfMetrics, pipelines_aggregate_ready};
+use tokio::net::TcpListener;
+use tokio::sync::Notify;
+use mara_policy::builtin::{DenyAll, HeadSampler, PrivacyFilter, RegexRedactor};
 use mara_runtime_ollama::OllamaNormalizer;
 use mara_sink_file::{FileSink, FileSinkConfig, StdoutSink};
 use mara_sink_otlp::{OtlpHttpSink, OtlpHttpSinkConfig};
@@ -45,19 +49,65 @@ pub async fn run(config_path: Option<&Path>) -> anyhow::Result<()> {
     // Build policy chains.
     let chains_by_name = build_policy_chains(&cfg.policies);
 
-    // Compose pipelines.
-    let mut handles = Vec::new();
+    let metrics_addr: SocketAddr = cfg.server.metrics_addr.trim().parse().map_err(|e| {
+        anyhow::anyhow!("invalid server.metrics_addr {:?}: {e}", cfg.server.metrics_addr)
+    })?;
+    let metrics_listener = TcpListener::bind(metrics_addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("cannot bind server.metrics_addr {metrics_addr}: {e}"))?;
+
+    let mut pipeline_metrics: Vec<Arc<PipelineSelfMetrics>> = Vec::new();
+    let handles_cell = Arc::new(Mutex::new(Vec::new()));
     for p in &cfg.pipelines {
-        let handle =
-            compose_pipeline(p, &adapters_by_name, &sinks_by_name, &chains_by_name).await?;
-        handles.push(handle);
+        let m = Arc::new(PipelineSelfMetrics::new(p.name.clone()));
+        pipeline_metrics.push(m.clone());
+        let handle = compose_pipeline(p, &adapters_by_name, &sinks_by_name, &chains_by_name, m).await?;
+        handles_cell.lock().expect("handles lock").push(handle);
     }
 
-    info!(pipelines = handles.len(), "all pipelines running; waiting for shutdown");
+    let readiness = {
+        let hc = Arc::clone(&handles_cell);
+        Arc::new(move || {
+            let g = hc.lock().expect("handles lock");
+            pipelines_aggregate_ready(&g)
+        }) as Arc<dyn Fn() -> bool + Send + Sync>
+    };
+
+    let max_in_flight = if metrics_addr.ip().is_loopback() {
+        cfg.server.metrics_max_in_flight_connections
+    } else {
+        Some(cfg.server.metrics_max_in_flight_connections.unwrap_or(64))
+    };
+
+    let metrics_shutdown = Arc::new(Notify::new());
+    let metrics_sd = metrics_shutdown.clone();
+    let metrics_opts = crate::metrics_server::SelfMetricsListenOptions {
+        readiness: Some(readiness),
+        max_in_flight_connections: max_in_flight,
+    };
+    let metrics_task = tokio::spawn(crate::metrics_server::serve_self_metrics_on(
+        metrics_listener,
+        pipeline_metrics,
+        metrics_sd,
+        metrics_opts,
+    ));
+
+    info!(
+        pipelines = handles_cell.lock().expect("handles lock").len(),
+        %metrics_addr,
+        "all pipelines running; self-telemetry active; waiting for shutdown"
+    );
     wait_for_shutdown().await;
 
     info!("shutdown signal received; draining pipelines");
-    for h in handles {
+    metrics_shutdown.notify_one();
+    match metrics_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => warn!(error = %e, "self-metrics server error"),
+        Err(e) => warn!("self-metrics task join error: {e:?}"),
+    }
+    let drained = std::mem::take(&mut *handles_cell.lock().expect("handles lock"));
+    for h in drained {
         if let Err(e) = h.shutdown().await {
             warn!("pipeline shutdown error: {e}");
         }
@@ -144,6 +194,13 @@ fn build_adapters(
                 continue;
             }
         };
+        if !listen.ip().is_loopback() {
+            warn!(
+                adapter = %c.name,
+                addr = %listen,
+                "llm_proxy listening on non-loopback; use TLS and authentication in front of this port (see docs/llm-proxy-non-loopback-threat-model.md)"
+            );
+        }
         let mut pcfg = LlmProxyAdapterConfig::new(c.name.clone(), listen, upstream);
         pcfg.max_body_bytes = c.max_body_bytes;
         let nz = llm_proxy_normalizer(c.normalizer.as_str(), server);
@@ -198,6 +255,9 @@ fn build_policy_chains(
         let mut built: Vec<Arc<dyn Policy>> = Vec::new();
         for stage in stages {
             match stage {
+                PolicyStageConfig::Privacy { mode } => {
+                    built.push(Arc::new(PrivacyFilter::new(*mode)));
+                }
                 PolicyStageConfig::Redact { pack } => {
                     if pack == "builtin.pii" {
                         built.push(Arc::new(RegexRedactor::builtin_pii()));
@@ -208,9 +268,8 @@ fn build_policy_chains(
                 PolicyStageConfig::Sample { rate } => {
                     built.push(Arc::new(HeadSampler::new(*rate)));
                 }
-                PolicyStageConfig::Deny { reason: _ } => {
-                    // Deny is not yet implemented as a built-in; a no-op for now.
-                    warn!("policy stage 'deny' not yet implemented; ignoring");
+                PolicyStageConfig::Deny { reason } => {
+                    built.push(Arc::new(DenyAll::new(reason.clone())));
                 }
             }
         }
@@ -227,6 +286,7 @@ async fn compose_pipeline(
     adapters: &std::collections::HashMap<String, Arc<dyn Adapter>>,
     sinks: &std::collections::HashMap<String, Arc<dyn Sink>>,
     chains: &std::collections::HashMap<String, Arc<PolicyChain>>,
+    self_metrics: Arc<PipelineSelfMetrics>,
 ) -> anyhow::Result<mara_core::PipelineHandle> {
     let chosen_adapters = p
         .adapters
@@ -253,7 +313,9 @@ async fn compose_pipeline(
         path: None,
     })?;
 
-    let pipeline = Pipeline::new(p.name.clone(), chosen_adapters, chain, chosen_sinks);
+    let pipeline = Pipeline::new(p.name.clone(), chosen_adapters, chain, chosen_sinks)
+        .with_self_metrics(self_metrics)
+        .with_audit_policy_drops(p.audit_policy_drops);
     Ok(pipeline.start().await?)
 }
 

@@ -28,8 +28,8 @@
 //! - `prompt_eval_duration` ns -> `mara.ollama.prompt_eval_duration_ms`.
 //! - `eval_duration` ns -> `mara.ollama.eval_duration_ms`.
 //! - `eval_count / (eval_duration / 1e9)` -> `mara.ollama.tokens_per_sec`.
-//! - `mara.cost.usd = 0`, `mara.cost.source = "mara_estimated"`,
-//!   `mara.compute.is_local = true`.
+//! - `mara.cost_usd` / `mara.cost_source`: from `[server.gen_ai_pricing]` when
+//!   `estimate_enabled` is true (M1-04); otherwise `0.0` with `mara_estimated`.
 //!
 //! References:
 //! - <https://docs.ollama.com/api> (endpoint index)
@@ -42,6 +42,7 @@
 
 #![doc(html_root_url = "https://docs.rs/mara-runtime-ollama/0.1.0")]
 
+mod cost_estimate;
 mod normalizer;
 
 pub use normalizer::OllamaNormalizer;

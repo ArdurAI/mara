@@ -93,6 +93,10 @@ cargo fmt --all --check
 
 The Rust toolchain is pinned via `rust-toolchain.toml`. `rustup` installs the right version on first use.
 
+Optional live check with **Ollama Cloud** models (local Ollama daemon + signed-in cloud + pulled `*-cloud` model): `bash scripts/realworld/ollama_cloud_smoke.sh` (see the script header for `MODEL`, `PROXY_PORT`, and other env vars).
+
+**Longer varied workload (≥15 min default):** `python3 scripts/realworld/ollama_cloud_varied_workload.py` — rotates generate/chat, OpenAI-compat chat, a real HTTP fetch + summarize, and sequential “planner → specialist” calls; writes `results.ndjson` and serves a tiny dashboard (`--dashboard-port`, default on). Use `--duration 900` (default) or shorter for dry runs.
+
 ## Try the CLI surface
 
 ```bash

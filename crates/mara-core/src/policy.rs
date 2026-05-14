@@ -31,10 +31,14 @@ pub enum PolicyOutcome {
     /// Continue to the next stage with the (possibly mutated) event.
     Pass(Event),
     /// Drop the event entirely; remaining stages are skipped and
-    /// no sink dispatch occurs.  Reason is recorded in the audit log.
+    /// no sink dispatch occurs for the original payload. The `event`
+    /// field holds the last mutated event (including any recorded
+    /// policy decisions) and may be used for optional audit export.
     Drop {
         /// Operator-facing reason for the drop.
         reason: String,
+        /// Last event state when the drop was decided (no body re-delivery).
+        event: Event,
     },
     /// Route the event onto an alternate channel.  Use sparingly;
     /// most fan-out is configured at pipeline level, not per stage.
@@ -53,10 +57,10 @@ impl PolicyOutcome {
         Self::Pass(event)
     }
 
-    /// Convenience constructor for a drop with a reason.
+    /// Convenience constructor for a drop with a reason (carries the event for optional audit).
     #[must_use]
-    pub fn drop(reason: impl Into<String>) -> Self {
-        Self::Drop { reason: reason.into() }
+    pub fn drop(event: Event, reason: impl Into<String>) -> Self {
+        Self::Drop { reason: reason.into(), event }
     }
 }
 
@@ -128,10 +132,14 @@ mod tests {
     }
 
     #[test]
-    fn drop_outcome_carries_reason() {
-        let outcome = PolicyOutcome::drop("test reason");
+    fn drop_outcome_carries_reason_and_event() {
+        let ev = Event::now(EventKind::Prompt, "test");
+        let outcome = PolicyOutcome::drop(ev, "test reason");
         match outcome {
-            PolicyOutcome::Drop { reason } => assert_eq!(reason, "test reason"),
+            PolicyOutcome::Drop { reason, event } => {
+                assert_eq!(reason, "test reason");
+                assert_eq!(event.scope.name, "test");
+            }
             _ => panic!("expected drop"),
         }
     }
@@ -167,8 +175,8 @@ mod tests {
         fn name(&self) -> &str {
             "always-drop"
         }
-        async fn apply(&self, _ctx: &PolicyContext, _ev: Event) -> Result<PolicyOutcome> {
-            Ok(PolicyOutcome::drop("test drop"))
+        async fn apply(&self, _ctx: &PolicyContext, ev: Event) -> Result<PolicyOutcome> {
+            Ok(PolicyOutcome::drop(ev, "test drop"))
         }
     }
 
@@ -192,7 +200,7 @@ mod tests {
         let ev = Event::now(EventKind::Prompt, "test");
         let outcome = chain.run(ev).await.expect("chain ran");
         match outcome {
-            ChainOutcome::Drop(reason) => assert_eq!(reason, "test drop"),
+            ChainOutcome::Drop { reason, .. } => assert_eq!(reason, "test drop"),
             ChainOutcome::Deliver(_) => panic!("expected drop"),
         }
     }
@@ -226,8 +234,8 @@ impl PolicyChain {
                 PolicyOutcome::Pass(next) => {
                     ev = next;
                 }
-                PolicyOutcome::Drop { reason } => {
-                    return Ok(ChainOutcome::Drop(reason));
+                PolicyOutcome::Drop { reason, event } => {
+                    return Ok(ChainOutcome::Drop { reason, event });
                 }
                 PolicyOutcome::Route { event, .. } => {
                     // Routing in M2 collapses to plain delivery; full
@@ -248,5 +256,10 @@ pub enum ChainOutcome {
     /// The event survives the chain and should be dispatched to sinks.
     Deliver(Event),
     /// The event was dropped by a stage.
-    Drop(String),
+    Drop {
+        /// Operator-facing reason.
+        reason: String,
+        /// Last event state at drop time (for optional audit export).
+        event: Event,
+    },
 }

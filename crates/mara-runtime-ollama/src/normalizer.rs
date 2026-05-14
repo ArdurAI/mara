@@ -10,6 +10,7 @@ use mara_schema::{AttrValue, EventKind, Resource, Severity, SourceRuntime};
 pub struct OllamaNormalizer {
     telemetry_service_name: Option<String>,
     telemetry_service_version: Option<String>,
+    gen_ai_pricing: mara_core::config::GenAiPricingConfig,
 }
 
 impl OllamaNormalizer {
@@ -28,7 +29,11 @@ impl OllamaNormalizer {
             .clone()
             .filter(|s| !s.is_empty())
             .or_else(|| std::env::var("MARA_SERVICE_VERSION").ok().filter(|s| !s.is_empty()));
-        Self { telemetry_service_name: name, telemetry_service_version: version }
+        Self {
+            telemetry_service_name: name,
+            telemetry_service_version: version,
+            gen_ai_pricing: server.gen_ai_pricing.clone(),
+        }
     }
 
     fn base_event(&self, session_id: &str) -> Event {
@@ -74,6 +79,13 @@ impl UpstreamNormalizer for OllamaNormalizer {
                     .insert("mara.proxy.upstream_status".into(), AttrValue::Int(i64::from(us)));
             }
             apply_client_correlation(&mut ev, request);
+            apply_agent_semantics(&mut ev, request);
+            crate::cost_estimate::apply_gen_ai_cost_estimate(
+                &mut ev,
+                &self.gen_ai_pricing,
+                request.body_truncated,
+                response.body_truncated,
+            );
             return vec![ev];
         }
 
@@ -94,6 +106,7 @@ impl UpstreamNormalizer for OllamaNormalizer {
 
         apply_request_fields(&mut ev, request);
         apply_client_correlation(&mut ev, request);
+        apply_agent_semantics(&mut ev, request);
 
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&response.body) {
             apply_json_fields(&mut ev, &v);
@@ -110,6 +123,12 @@ impl UpstreamNormalizer for OllamaNormalizer {
             }
         }
 
+        crate::cost_estimate::apply_gen_ai_cost_estimate(
+            &mut ev,
+            &self.gen_ai_pricing,
+            request.body_truncated,
+            response.body_truncated,
+        );
         vec![ev]
     }
 }
@@ -146,6 +165,50 @@ fn apply_client_correlation(ev: &mut Event, request: &ProxiedRequest) {
     }
     if let Some(s) = turn {
         ev.mara.turn_id = Some(s);
+    }
+}
+
+/// Agent / orchestration fields when clients embed hints in JSON (M2-03).
+fn apply_agent_semantics(ev: &mut Event, request: &ProxiedRequest) {
+    if request.body_truncated || request.body.is_empty() {
+        return;
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&request.body) else {
+        return;
+    };
+    if let Some(s) = json_nonempty_string(v.get("agent_id"))
+        .or_else(|| json_nonempty_string(v.pointer("/metadata/agent_id")))
+    {
+        ev.mara.agent_id = Some(s);
+    }
+    if let Some(s) = json_nonempty_string(v.get("step_id"))
+        .or_else(|| json_nonempty_string(v.pointer("/metadata/step_id")))
+    {
+        ev.mara.step_id = Some(s);
+    }
+    if let Some(s) = json_nonempty_string(v.get("tool_name"))
+        .or_else(|| json_nonempty_string(v.pointer("/metadata/tool_name")))
+    {
+        ev.mara.tool_name = Some(s);
+    }
+    if let Some(s) = json_nonempty_string(v.get("tool_outcome"))
+        .or_else(|| json_nonempty_string(v.pointer("/metadata/tool_outcome")))
+    {
+        ev.mara.tool_outcome = Some(s);
+    }
+    if ev.mara.tool_name.is_none()
+        && let Some(arr) = v.get("messages").and_then(serde_json::Value::as_array)
+        && let Some(last) = arr.last()
+        && let Some(tc) = last
+            .get("tool_calls")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|a| a.first())
+        && let Some(name) = tc
+            .pointer("/function/name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+    {
+        ev.mara.tool_name = Some(name.to_owned());
     }
 }
 
@@ -305,8 +368,6 @@ fn apply_json_fields(ev: &mut Event, v: &serde_json::Value) {
         ev.gen_ai.usage.total_tokens = Some(i + o);
     }
 
-    ev.mara.cost_usd = Some(0.0);
-    ev.mara.cost_source = Some(mara_schema::CostSource::MaraEstimated);
     ev.attributes.insert("mara.compute.is_local".into(), AttrValue::Bool(true));
 }
 
@@ -326,6 +387,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"llama3.2","eval_count":16,"prompt_eval_count":128,"total_duration":5000000}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -347,6 +409,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
+        ..Default::default()
         };
         let resp = ProxiedResponse {
             status: 502,
@@ -376,6 +439,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
+        ..Default::default()
         };
         let resp = ProxiedResponse::from_upstream(
             503,
@@ -406,6 +470,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
+        ..Default::default()
         };
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(br#"{}"#), false);
         let evs = n.normalize("svc-test", &req, &resp);
@@ -423,6 +488,7 @@ mod tests {
             headers: vec![],
             body: Bytes::new(),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"qwen2.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":7,"total_tokens":10}}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -436,6 +502,33 @@ mod tests {
     }
 
     #[test]
+    fn gen_ai_pricing_enabled_computes_cost_usd() {
+        use mara_schema::CostSource;
+
+        let mut server = mara_core::config::ServerConfig::default();
+        server.gen_ai_pricing.estimate_enabled = true;
+        server.gen_ai_pricing.default_input_per_million_usd = 1.0;
+        server.gen_ai_pricing.default_output_per_million_usd = 2.0;
+        let n = OllamaNormalizer::from_server(&server);
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![],
+            body: Bytes::new(),
+            body_truncated: false,
+        ..Default::default()
+        };
+        let body = br#"{"model":"m","eval_count":1,"prompt_eval_count":2}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("cost", &req, &resp);
+        let ev = &evs[0];
+        let c = ev.mara.cost_usd.expect("cost");
+        let expected = (2.0 / 1_000_000.0) * 1.0 + (1.0 / 1_000_000.0) * 2.0;
+        assert!((c - expected).abs() < 1e-15, "got {c} want {expected}");
+        assert_eq!(ev.mara.cost_source, Some(CostSource::MaraEstimated));
+    }
+
+    #[test]
     fn fills_generate_request_from_client_json_and_response_meta() {
         let n = OllamaNormalizer::default();
         let req = ProxiedRequest {
@@ -446,6 +539,7 @@ mod tests {
                 br#"{"model":"gpt-oss:120b-cloud","stream":false,"options":{"temperature":0.7,"top_p":0.9,"top_k":40,"num_predict":256,"stop":["\n\n"]}}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"gpt-oss:120b","done_reason":"stop","prompt_eval_count":10,"eval_count":3,"total_duration":1000000}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -474,6 +568,7 @@ mod tests {
                 br#"{"model":"qwen2.5","temperature":0.2,"max_tokens":512,"stream":true,"stop":"USER:"}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"qwen2.5","choices":[{"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -500,6 +595,7 @@ mod tests {
                 br#"{"model":"llama3.2:latest","prompt":"hi","stream":false}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"llama3.2:latest","response":"ok","done":true,"done_reason":"stop","prompt_eval_count":9,"eval_count":4}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -526,6 +622,7 @@ mod tests {
                 br#"{"model":"llama3.2:latest","messages":[{"role":"user","content":"hi"}],"stream":false}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"llama3.2:latest","message":{"role":"assistant","content":"ok"},"done":true,"done_reason":"stop","prompt_eval_count":11,"eval_count":3}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -552,6 +649,7 @@ mod tests {
                 br#"{"model":"m","stream":false,"metadata":{"conversation_id":"c-1","turn_id":"t-9"}}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -573,6 +671,7 @@ mod tests {
             ],
             body: Bytes::from_static(br#"{"model":"m","messages":[],"stream":false}"#),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -596,6 +695,7 @@ mod tests {
                 br#"{"model":"m","prompt":"x","stream":false,"conversation_id":"from-json","turn_id":"turn-json"}"#,
             ),
             body_truncated: false,
+        ..Default::default()
         };
         let body = br#"{"model":"m","response":"y","prompt_eval_count":1,"eval_count":1}"#;
         let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
@@ -603,6 +703,29 @@ mod tests {
         let ev = &evs[0];
         assert_eq!(ev.gen_ai.conversation_id.as_deref(), Some("from-json"));
         assert_eq!(ev.mara.turn_id.as_deref(), Some("turn-json"));
+    }
+
+    #[test]
+    fn agent_semantics_from_json_and_metadata() {
+        let n = OllamaNormalizer::default();
+        let req = ProxiedRequest {
+            method: "POST".into(),
+            path_and_query: "/api/chat".into(),
+            headers: vec![],
+            body: Bytes::from_static(
+                br#"{"model":"m","stream":false,"agent_id":"agent-1","metadata":{"step_id":"3","tool_name":"web_search","tool_outcome":"success"}}"#,
+            ),
+            body_truncated: false,
+            ..Default::default()
+        };
+        let body = br#"{"model":"m","message":{"role":"assistant","content":"x"},"prompt_eval_count":1,"eval_count":1}"#;
+        let resp = ProxiedResponse::from_upstream(200, vec![], Bytes::from_static(body), false);
+        let evs = n.normalize("ag", &req, &resp);
+        let ev = &evs[0];
+        assert_eq!(ev.mara.agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(ev.mara.step_id.as_deref(), Some("3"));
+        assert_eq!(ev.mara.tool_name.as_deref(), Some("web_search"));
+        assert_eq!(ev.mara.tool_outcome.as_deref(), Some("success"));
     }
 
     #[test]
@@ -614,6 +737,7 @@ mod tests {
             headers: vec![("X-Conversation-Id".into(), "err-corr".into())],
             body: Bytes::from_static(br#"{"model":"m","stream":false}"#),
             body_truncated: false,
+        ..Default::default()
         };
         let resp = ProxiedResponse {
             status: 502,

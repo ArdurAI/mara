@@ -1,0 +1,7 @@
+# Pinned OpenTelemetry semantic conventions alignment for Mara schema (M2-17).
+# Bump procedure: update `SEMCONV_COMMIT` in `crates/mara-schema/src/lib.rs`, then
+# update this file and run `bash scripts/check_semconv_lock.sh` locally before CI.
+
+OTEL_SEMCONV_TAG=v1.37.0
+SEMCONV_COMMIT=aec6e9d3e86754683dab7c707655d69d953b2768
+SCHEMA_VERSION=0.1.0

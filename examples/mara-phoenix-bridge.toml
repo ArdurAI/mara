@@ -1,0 +1,29 @@
+# Example: OTLP-forwarding pipeline for Phoenix-style backends (M2-18)
+schema_version = "1"
+
+[server]
+metrics_addr = "127.0.0.1:9099"
+
+[[adapters.llm_proxy]]
+name = "ollama"
+http_listen = "127.0.0.1:11435"
+upstream = "http://127.0.0.1:11434"
+normalizer = "ollama"
+
+[[sinks.file]]
+name = "events"
+path = "events.jsonl"
+
+# Uncomment to forward the same events to OTLP (Phoenix / collector):
+# [[sinks.otlp]]
+# name = "forward"
+# http_endpoint = "http://127.0.0.1:4318"
+# batch_max_events = 64
+# timeout_secs = 30
+# gzip = false
+
+[[pipelines]]
+name = "main"
+adapters = ["ollama"]
+policy_chain = "default"
+sinks = ["events"] # add "forward" when OTLP sink is enabled

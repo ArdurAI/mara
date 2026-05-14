@@ -5,6 +5,7 @@
 //! M2 wires `run` and `validate` to live config + pipeline; the
 //! remaining subcommands stay as stubs through M2/M3.
 
+mod metrics_server;
 mod run;
 mod setup;
 

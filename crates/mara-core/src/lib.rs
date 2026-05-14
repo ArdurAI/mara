@@ -27,14 +27,16 @@ pub mod error;
 pub mod health;
 pub mod pipeline;
 pub mod policy;
+pub mod self_metrics;
 pub mod traits;
 
 pub use config::Config;
 pub use error::{Error, Result};
 pub use health::{Health, HealthStatus};
 pub use mara_schema::Event;
-pub use pipeline::{Pipeline, PipelineHandle};
+pub use pipeline::{pipelines_aggregate_ready, Pipeline, PipelineHandle};
 pub use policy::{Policy, PolicyChain, PolicyContext, PolicyOutcome};
+pub use self_metrics::{PipelineSelfMetrics, render_prometheus};
 pub use traits::{Adapter, EventReceiver, EventSender, Sink};
 
 pub mod prelude {

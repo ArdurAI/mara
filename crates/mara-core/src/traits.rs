@@ -54,9 +54,9 @@ pub trait Adapter: Send + Sync {
     /// in-flight events before returning.
     async fn shutdown(&self) -> Result<()>;
 
-    /// Report current health.  Default returns a starting report.
+    /// Report current health.  Default is [`Health::healthy`] (assume ready until you track real state).
     fn health(&self) -> Health {
-        Health::default()
+        Health::healthy()
     }
 }
 
@@ -84,9 +84,9 @@ pub trait Sink: Send + Sync {
     /// returning.
     async fn shutdown(&self) -> Result<()>;
 
-    /// Report current health.  Default returns a starting report.
+    /// Report current health.  Default is [`Health::healthy`] (assume ready until you track real state).
     fn health(&self) -> Health {
-        Health::default()
+        Health::healthy()
     }
 }
 

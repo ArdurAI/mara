@@ -2,6 +2,8 @@
 
 Generated at: 2026-05-12 (M3 baseline). Target schema: see [`plans/05-evaluation/02-compatibility-matrix-spec.md`](../plans/05-evaluation/02-compatibility-matrix-spec.md).
 
+For **required `gen_ai.*` / `resource.*` field parity** scores (M2-01), see [`integrations/runtime-parity-matrix.md`](integrations/runtime-parity-matrix.md).
+
 Legend: ✅ PASS · 🟡 PARTIAL · ❌ GAP · 🚫 N/A · ⚠️ EXPERIMENTAL
 
 ## Tier classification

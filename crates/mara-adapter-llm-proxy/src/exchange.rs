@@ -15,6 +15,24 @@ pub struct ProxiedRequest {
     pub body: Bytes,
     /// `true` when `body` was cut at the configured byte cap.
     pub body_truncated: bool,
+    /// Correlation id forwarded or minted at the gateway (`x-mara-request-id`).
+    pub request_id: Option<String>,
+    /// Wall time from proxy accept to response-ready (ms); split-SLO vs upstream duration.
+    pub gateway_duration_ms: Option<f64>,
+}
+
+impl Default for ProxiedRequest {
+    fn default() -> Self {
+        Self {
+            method: "GET".into(),
+            path_and_query: "/".into(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            body_truncated: false,
+            request_id: None,
+            gateway_duration_ms: None,
+        }
+    }
 }
 
 /// Upstream response after forwarding.

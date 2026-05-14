@@ -91,6 +91,22 @@ This document is the canonical engineering reference. The high-level plan summar
 
 **Risks:** WAL durability bugs; tokio channel sizing; redaction false positives.
 
+### Engineering review backlog (tracked on milestone board)
+
+Cross-cutting items from the 2026 performance / backend / observability / cost / security / platform / systems-design review are **not** a separate MOS phase; they are ticketed on [`docs/milestones/mara-m0-m2-board.md`](../../docs/milestones/mara-m0-m2-board.md) as **M1-08–M1-11** (M1 hardening) and **M2-08–M2-15** (M2 reliability and ops). **M2-16–M2-22** add the market-gap telemetry backlog (correlation ID, semconv pin, OpenInference bridge, Presidio path, eval OTLP profile, upstream semantics doc, vector/GPU spike). Summary:
+
+- **Policy honesty:** `deny` stage must be implemented or rejected at config parse (no silent skip).
+- **Proxy security:** Threat model and controls when `llm_proxy` binds beyond loopback; upstream timeouts and connection limits.
+- **CI:** Semgrep (or equivalent) must not hide failures without a mandatory alternate signal.
+- **Observability docs:** Clarify self-metrics latency histogram vs in-process p95 sample semantics for PromQL users.
+- **Pipeline:** Parallel sink fan-out; optional `Arc<Event>` to cut clone cost; readiness endpoint beyond liveness.
+- **Performance:** Bound `/metrics` scrape cost; optional dual latency (gateway vs engine); cap concurrent scrape connections when metrics are exposed.
+- **Cost honesty:** Explicit cost-confidence metadata when truncation or missing usage breaks estimates.
+- **Platform:** Minimal Helm/K8s probe wiring; USE-style saturation metrics for bounded channels.
+- **Market parity (thin proxy):** Stable **gateway correlation ID** when `traceparent` is absent; **pinned OTel GenAI semconv** with CI drift; **OpenInference / Phoenix** mapping doc; **optional Presidio**-class PII; **eval-backend OTLP** checklist (export-only); **explicit single-upstream** semantics; **vector/GPU** scope spike.
+
+Pull work from this backlog into each sprint according to the board priorities (P0 first: M1-08, M1-09).
+
 ## M3 — Runtime integration slice
 
 **Duration:** 4 weeks.
@@ -190,6 +206,7 @@ This document is the canonical engineering reference. The high-level plan summar
 
 ## Cross-milestone tracking
 
+- **Milestone board sync:** [`docs/milestones/mara-m0-m2-board.md`](../../docs/milestones/mara-m0-m2-board.md) carries execution tickets (M0–M2 plus M1-08+ / M2-08+ engineering-review rows and **M2-16–M2-22** market-gap telemetry rows); keep MOS narrative here and ticket detail there aligned when dates slip.
 - **Performance regression budget**: 5% from rolling 30-day baseline; breaches require an issue and a fix or accepted variance.
 - **Documentation budget**: every new public type or trait method requires `rustdoc` with at least one example before merge.
 - **Coverage budget**: line coverage ≥75% on `mara-core`, ≥60% on adapters/sinks, ≥80% on policy primitives. Tracked via `cargo-llvm-cov`.

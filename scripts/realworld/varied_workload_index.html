@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mara — Ollama varied workload</title>
+  <style>
+    :root { color-scheme: dark light; }
+    body { font-family: system-ui, sans-serif; margin: 1rem; line-height: 1.45; }
+    pre { background: #111; color: #e8e8e8; padding: 1rem; border-radius: 8px; overflow: auto; max-height: 72vh; font-size: 12px; }
+    #meta { opacity: 0.85; font-size: 14px; }
+    .err { color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>Ollama cloud workload (via Mara proxy)</h1>
+  <p id="meta">Polling <code>results.ndjson</code>…</p>
+  <pre id="out">Loading…</pre>
+  <script>
+    async function poll() {
+      const meta = document.getElementById("meta");
+      const out = document.getElementById("out");
+      try {
+        const r = await fetch("results.ndjson?v=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) {
+          out.textContent = "(waiting for first results — " + r.status + ")";
+          return;
+        }
+        const t = await r.text();
+        out.textContent = t.trim() ? t : "(empty — workload starting)";
+        meta.textContent = "Last fetch: " + new Date().toISOString() + " · refresh every 4s";
+      } catch (e) {
+        out.innerHTML = '<span class="err">' + String(e) + "</span>";
+      }
+    }
+    setInterval(poll, 4000);
+    poll();
+  </script>
+</body>
+</html>

@@ -57,6 +57,16 @@ impl Health {
             consecutive_failures: 0,
         }
     }
+
+    /// Used for HTTP `/readyz`: only **running** components count as ready.
+    ///
+    /// Ready: [`HealthStatus::Healthy`] or [`HealthStatus::Degraded`]. Not ready:
+    /// [`HealthStatus::Starting`], [`HealthStatus::Stopping`], [`HealthStatus::Stopped`],
+    /// [`HealthStatus::Failed`]. See `docs/observability/mara-readyz-semantics.md`.
+    #[must_use]
+    pub fn is_aggregate_ready(&self) -> bool {
+        matches!(self.status, HealthStatus::Healthy | HealthStatus::Degraded)
+    }
 }
 
 #[cfg(test)]
@@ -68,6 +78,40 @@ mod tests {
         let h = Health::default();
         assert_eq!(h.status, HealthStatus::Starting);
         assert_eq!(h.consecutive_failures, 0);
+    }
+
+    #[test]
+    fn aggregate_ready_excludes_failed() {
+        let h = Health {
+            status: HealthStatus::Failed,
+            message: "x".into(),
+            last_success_ms_ago: None,
+            consecutive_failures: 1,
+        };
+        assert!(!h.is_aggregate_ready());
+        assert!(Health::healthy().is_aggregate_ready());
+        assert!(!Health::default().is_aggregate_ready());
+        let degraded = Health {
+            status: HealthStatus::Degraded,
+            message: "lag".into(),
+            last_success_ms_ago: Some(500),
+            consecutive_failures: 0,
+        };
+        assert!(degraded.is_aggregate_ready());
+        let stopping = Health {
+            status: HealthStatus::Stopping,
+            message: "drain".into(),
+            last_success_ms_ago: None,
+            consecutive_failures: 0,
+        };
+        assert!(!stopping.is_aggregate_ready());
+        let stopped = Health {
+            status: HealthStatus::Stopped,
+            message: "done".into(),
+            last_success_ms_ago: None,
+            consecutive_failures: 0,
+        };
+        assert!(!stopped.is_aggregate_ready());
     }
 
     #[test]

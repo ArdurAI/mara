@@ -69,8 +69,25 @@ jobs:
           python3 scripts/benchmarks/telemetry_quality_report.py docs/captured/fixtures/ollama-proxy-smoke-sample.jsonl > /tmp/telemetry-quality.md
           diff -u docs/captured/telemetry-quality-from-fixture.md /tmp/telemetry-quality.md
 
+  schema-completeness-gate:
+    name: schema completeness gate (M2-02 fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required-field fill-rate on canonical fixtures
+        run: python3 scripts/benchmarks/schema_completeness_gate.py
+
+  semconv-lock:
+    name: semconv lock drift (M2-17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify docs/semconv.lock matches mara-schema constants
+        run: bash scripts/check_semconv_lock.sh
+
   build:
-    name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
