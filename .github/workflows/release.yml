@@ -82,7 +82,7 @@ jobs:
           fi
           echo "asset=dist/${name}" >> "$GITHUB_OUTPUT"
         shell: bash
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mara-${{ matrix.target }}
           path: dist/
@@ -103,7 +103,7 @@ jobs:
         run: |
           cargo install cargo-sbom
           cargo sbom --output-format spdx-json-2-3 > dist/mara-sbom.spdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sboms
           path: dist/
