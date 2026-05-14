@@ -92,7 +92,7 @@ A **Hugo** static site (home, docs hub, community, quickstart) lives in [`websit
 cd website && hugo server -D
 ```
 
-See [`website/README.md`](website/README.md) for theme notes, production build, and CI. Set `baseURL` in `website/hugo.toml` before deploying.
+See [`website/README.md`](website/README.md) for theme notes, production build, and CI. The Hugo site defaults to **GitHub Pages** (`https://ardurai.github.io/mara/`); adjust `website/hugo.toml` if you use another host.
 
 ## Install and verify
 

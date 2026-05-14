@@ -1,6 +1,6 @@
 # Mara project site — https://gohugo.io/
-# Replace baseURL when deploying (GitHub Pages, Netlify, etc.).
-baseURL = 'https://example.com/'
+# Default public URL: GitHub Pages (project site). Change when you add a custom domain.
+baseURL = 'https://ardurai.github.io/mara/'
 # Hugo 0.158+ prefers `locale` over deprecated `languageCode`.
 locale = 'en-US'
 title = 'Mara'

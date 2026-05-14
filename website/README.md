@@ -31,8 +31,14 @@ hugo --gc --minify
 
 ## Configuration
 
-- [`hugo.toml`](hugo.toml) — set `baseURL` to your real domain before deploying (placeholder is `https://example.com/`).
+- [`hugo.toml`](hugo.toml) — `baseURL` defaults to the GitHub Pages project URL (`https://ardurai.github.io/mara/`). Update it if you move hosting or attach a custom domain.
 
 ## Deploy
 
-CI can build with [peaceiris/actions-hugo](https://github.com/peaceiris/actions-hugo) (see `.github/workflows/hugo.yml`). Upload `website/public/` as a GitHub Pages artifact or sync to any static host.
+CI builds with [peaceiris/actions-hugo](https://github.com/peaceiris/actions-hugo) and, on pushes to **`main`** (not PRs), publishes to **GitHub Pages** via `.github/workflows/hugo.yml`.
+
+**One-time repo setup:** Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+
+After a successful deploy from `main`, the site is at **https://ardurai.github.io/mara/**.
+
+You can still run `hugo --gc --minify` locally and sync `website/public/` elsewhere if needed.
