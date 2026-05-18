@@ -86,7 +86,7 @@ parking_lot = "0.12"
 opentelemetry = "0.27"
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace", "metrics", "logs"] }
 opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic", "http-proto", "http-json", "logs", "metrics", "trace"] }
-opentelemetry-proto = { version = "0.27", features = ["gen-tonic-messages", "logs", "trace"] }
+opentelemetry-proto = { version = "0.32", features = ["gen-tonic-messages", "logs", "trace"] }
 opentelemetry-semantic-conventions = "0.27"
 
 # HTTP server (for the OTLP HTTP receiver)
